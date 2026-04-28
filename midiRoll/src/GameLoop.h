@@ -21,9 +21,10 @@ public:
     void Run();
     void Shutdown();
 
-private:
     void OnResize(int width, int height);
     void OnKey(int key, bool down);
+
+private:
     void Update(double dt);
     void Render(double interpolation);
 

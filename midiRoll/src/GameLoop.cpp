@@ -4,36 +4,30 @@
 
 namespace pfd {
 
-// Resize callback (static)
 static GameLoop* s_gameLoop = nullptr;
-static void ResizeCallback(int w, int h) { if (s_gameLoop) s_gameLoop->OnResize(w, h); }
-static void KeyCallback(int k, bool d)   { if (s_gameLoop) s_gameLoop->OnKey(k, d); }
 
 bool GameLoop::Initialize(HINSTANCE hInstance, int nCmdShow) {
     s_gameLoop = this;
 
-    // Create window (1280x720 default)
     if (!m_window.Create(1280, 720, L"midiRoll")) return false;
-    m_window.SetResizeCallback(ResizeCallback);
-    m_window.SetKeyCallback(KeyCallback);
 
-    // Initialize D3D11
+    // Use lambdas as callbacks
+    m_window.SetResizeCallback([](int w, int h) {
+        if (s_gameLoop) s_gameLoop->OnResize(w, h);
+    });
+    m_window.SetKeyCallback([](int k, bool d) {
+        if (s_gameLoop) s_gameLoop->OnKey(k, d);
+    });
+
     if (!m_d3d.Initialize(m_window.Handle(), m_window.Width(), m_window.Height())) return false;
-
-    // Initialize renderer subsystems
     if (!m_spriteBatch.Initialize(m_d3d.Device())) return false;
     if (!m_textRenderer.Initialize(m_d3d.Device(), m_d3d.Context(), m_d3d.SwapChain())) return false;
     if (!m_bloom.Initialize(m_d3d.Device(), m_window.Width(), m_window.Height())) return false;
     if (!m_sceneRT.Create(m_d3d.Device(), m_window.Width(), m_window.Height())) return false;
 
-    // Initialize piano renderer
     m_piano.Initialize(m_d3d.Device(), m_window.Width(), m_window.Height());
-
-    // Initialize audio
     m_audio.Initialize();
 
-    // Try to load a MIDI file from command line or default
-    // For now, just start in interactive keyboard mode
     m_midiLoaded = false;
     m_playing = false;
 
@@ -49,7 +43,6 @@ void GameLoop::Run() {
 
         double dt = m_timer.Delta();
 
-        // FPS counter
         m_fpsAccum += dt;
         m_fpsCount++;
         if (m_fpsAccum >= 1.0) {
@@ -78,21 +71,13 @@ void GameLoop::OnResize(int width, int height) {
 void GameLoop::OnKey(int key, bool down) {
     m_input.OnKey(key, down);
 
-    // Space = toggle playback
-    if (key == VK_SPACE && down) {
-        m_playing = !m_playing;
-    }
-
-    // Escape = quit
-    if (key == VK_ESCAPE) {
-        PostQuitMessage(0);
-    }
+    if (key == VK_SPACE && down) m_playing = !m_playing;
+    if (key == VK_ESCAPE) PostQuitMessage(0);
 }
 
 void GameLoop::Update(double dt) {
     double currentTime = m_timer.Elapsed();
 
-    // Process keyboard input → MIDI notes
     for (auto& ev : m_input.GetEvents()) {
         if (ev.isDown) {
             m_noteState.NoteOn(ev.note, 100, 0, currentTime);
@@ -103,7 +88,6 @@ void GameLoop::Update(double dt) {
     }
     m_input.ClearEvents();
 
-    // MIDI file playback
     if (m_midiLoaded && m_playing) {
         m_playbackTime += dt;
         while (m_nextEventIdx < m_sortedEvents.size() &&
@@ -119,28 +103,23 @@ void GameLoop::Update(double dt) {
         }
     }
 
-    // Update piano visuals + particles
     m_piano.Update(m_noteState, (float)currentTime, (float)dt);
     m_noteState.ClearRecentEvents();
 }
 
 void GameLoop::Render(double) {
-    // Render scene to off-screen RT
     m_sceneRT.Bind(m_d3d.Context());
     m_sceneRT.Clear(m_d3d.Context(), 0.02f, 0.02f, 0.04f);
 
     float currentTime = (float)m_timer.Elapsed();
 
-    // Draw everything via SpriteBatch
     m_spriteBatch.Begin(m_d3d.Context());
     m_piano.Render(m_spriteBatch, m_noteState, currentTime, (float)m_timer.Delta());
     m_spriteBatch.End(m_d3d.Context(), m_window.Width(), m_window.Height());
 
-    // Apply bloom and composite to back buffer
     m_bloom.Apply(m_d3d.Context(), m_sceneRT.SRV(), m_d3d.BackBufferRTV(),
                   m_window.Width(), m_window.Height());
 
-    // Text overlay (FPS + stats)
     m_textRenderer.BeginDraw(m_d3d.Context());
     auto fpsText = std::format(L"FPS: {} | Particles: {}", m_fpsDisplay, m_piano.particles.Count());
     m_textRenderer.DrawText(fpsText, 10, 10, 1.0f, 1.0f, 1.0f, 0.8f);

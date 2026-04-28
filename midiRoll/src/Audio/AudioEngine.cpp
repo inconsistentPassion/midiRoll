@@ -9,7 +9,10 @@ bool AudioEngine::Initialize() {
     if (FAILED(hr)) return false;
 
 #ifdef _DEBUG
-    XAUDIO2_DEBUG_ENGINE debug{};
+    // Enable XAudio2 debug output
+    XAUDIO2_DEBUG_CONFIGURATION debug{};
+    debug.TraceMask = XAUDIO2_LOG_ERRORS | XAUDIO2_LOG_WARNINGS;
+    debug.BreakMask = XAUDIO2_LOG_ERRORS;
     m_xaudio2->SetDebugConfiguration(&debug);
 #endif
 

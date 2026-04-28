@@ -27,7 +27,7 @@ bool TextRenderer::CreateD2DResources(ID3D11Device* device, IDXGISwapChain* swap
     m_backBuffer.As(&surface);
 
     D2D1_RENDER_TARGET_PROPERTIES props = D2D1::RenderTargetProperties(
-        D2D1_RENDER_TYPE_DEFAULT,
+        D2D1_RENDER_TARGET_TYPE_DEFAULT,
         D2D1::PixelFormat(DXGI_FORMAT_UNKNOWN, D2D1_ALPHA_MODE_PREMULTIPLIED)
     );
 

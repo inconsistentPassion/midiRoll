@@ -1,6 +1,7 @@
 #pragma once
 #include <Windows.h>
 #include <array>
+#include <vector>
 
 namespace pfd {
 
