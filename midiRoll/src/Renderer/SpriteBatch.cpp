@@ -222,7 +222,7 @@ void SpriteBatch::End(ID3D11DeviceContext* ctx, uint32_t viewWidth, uint32_t vie
     ctx->RSSetState(m_rasterizerState.Get());
 
     // Draw instanced
-    ctx->DrawIndexedInstanced(6, (UINT)m_instances.size(), 0);
+    ctx->DrawIndexedInstanced(6, (UINT)m_instances.size(), 0, 0, 0);
 }
 
 } // namespace pfd
