@@ -1,0 +1,29 @@
+# Build outputs
+bin/
+obj/
+*.exe
+*.dll
+*.pdb
+*.ilk
+*.obj
+*.lib
+*.exp
+*.iobj
+*.ipdb
+*.cso
+
+# VS files
+.vs/
+*.user
+*.suo
+*.sdf
+*.opensdf
+*.opendb
+*.VC.db
+*.VC.opendb
+ipch/
+x64/
+
+# OS
+Thumbs.db
+.DS_Store

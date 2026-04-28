@@ -1,0 +1,163 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <VCProjectVersion>17.0</VCProjectVersion>
+    <ProjectGuid>{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}</ProjectGuid>
+    <RootNamespace>midiRoll</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+    <WindowsTargetPlatformMinVersion>10.0.19041.0</WindowsTargetPlatformMinVersion>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+
+  <!-- Debug -->
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <LinkIncremental>true</LinkIncremental>
+    <OutDir>$(SolutionDir)bin\$(Configuration)\</OutDir>
+    <IntDir>$(SolutionDir)obj\$(Configuration)\</IntDir>
+  </PropertyGroup>
+
+  <!-- Release -->
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <LinkIncremental>false</LinkIncremental>
+    <OutDir>$(SolutionDir)bin\$(Configuration)\</OutDir>
+    <IntDir>$(SolutionDir)obj\$(Configuration)\</IntDir>
+  </PropertyGroup>
+
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings" />
+
+  <ImportGroup Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props"
+            Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')"
+            Label="LocalAppDataPlatform" />
+  </ImportGroup>
+
+  <PropertyGroup Label="UserMacros" />
+
+  <!-- Debug compile/link -->
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <ClCompile>
+      <WarningLevel>Level4</WarningLevel>
+      <SDLCheck>true</SDLCheck>
+      <PreprocessorDefinitions>_DEBUG;_CONSOLE;WIN32_LEAN_AND_MEAN;NOMINMAX;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <ConformanceMode>true</ConformanceMode>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <AdditionalIncludeDirectories>$(ProjectDir)src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalDependencies>d3d11.lib;dxgi.lib;d3dcompiler.lib;dxguid.lib;xaudio2.lib;windowscodecs.lib;dwrite.lib;d2d1.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+    <FxCompile>
+      <ShaderType />
+      <ShaderModel>5.0</ShaderModel>
+      <AdditionalOptions>/Zi %(AdditionalOptions)</AdditionalOptions>
+      <ObjectFileOutput>$(SolutionDir)bin\$(Configuration)\shaders\%(Filename).cso</ObjectFileOutput>
+      <HeaderFileOutput>$(SolutionDir)bin\$(Configuration)\shaders\%(Filename).h</HeaderFileOutput>
+    </FxCompile>
+  </ItemDefinitionGroup>
+
+  <!-- Release compile/link -->
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <ClCompile>
+      <WarningLevel>Level4</WarningLevel>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <SDLCheck>true</SDLCheck>
+      <PreprocessorDefinitions>NDEBUG;_CONSOLE;WIN32_LEAN_AND_MEAN;NOMINMAX;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <ConformanceMode>true</ConformanceMode>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <AdditionalIncludeDirectories>$(ProjectDir)src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalDependencies>d3d11.lib;dxgi.lib;d3dcompiler.lib;dxguid.lib;xaudio2.lib;windowscodecs.lib;dwrite.lib;d2d1.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+    <FxCompile>
+      <ShaderModel>5.0</ShaderModel>
+      <ObjectFileOutput>$(SolutionDir)bin\$(Configuration)\shaders\%(Filename).cso</ObjectFileOutput>
+      <HeaderFileOutput>$(SolutionDir)bin\$(Configuration)\shaders\%(Filename).h</HeaderFileOutput>
+    </FxCompile>
+  </ItemDefinitionGroup>
+
+  <!-- Source files -->
+  <ItemGroup>
+    <ClCompile Include="src\main.cpp" />
+    <ClCompile Include="src\GameLoop.cpp" />
+    <ClCompile Include="src\Window.cpp" />
+    <ClCompile Include="src\Input.cpp" />
+    <ClCompile Include="src\Renderer\D3DContext.cpp" />
+    <ClCompile Include="src\Renderer\ShaderManager.cpp" />
+    <ClCompile Include="src\Renderer\SpriteBatch.cpp" />
+    <ClCompile Include="src\Renderer\TextRenderer.cpp" />
+    <ClCompile Include="src\Renderer\RenderTarget.cpp" />
+    <ClCompile Include="src\Effects\ParticleSystem.cpp" />
+    <ClCompile Include="src\Effects\Bloom.cpp" />
+    <ClCompile Include="src\Piano\PianoRenderer.cpp" />
+    <ClCompile Include="src\Piano\NoteState.cpp" />
+    <ClCompile Include="src\Audio\AudioEngine.cpp" />
+    <ClCompile Include="src\Audio\MidiParser.cpp" />
+  </ItemGroup>
+
+  <!-- Header files -->
+  <ItemGroup>
+    <ClInclude Include="src\GameLoop.h" />
+    <ClInclude Include="src\Window.h" />
+    <ClInclude Include="src\Input.h" />
+    <ClInclude Include="src\Renderer\D3DContext.h" />
+    <ClInclude Include="src\Renderer\ShaderManager.h" />
+    <ClInclude Include="src\Renderer\SpriteBatch.h" />
+    <ClInclude Include="src\Renderer\TextRenderer.h" />
+    <ClInclude Include="src\Renderer\RenderTarget.h" />
+    <ClInclude Include="src\Effects\ParticleSystem.h" />
+    <ClInclude Include="src\Effects\Bloom.h" />
+    <ClInclude Include="src\Piano\PianoRenderer.h" />
+    <ClInclude Include="src\Piano\NoteState.h" />
+    <ClInclude Include="src\Audio\AudioEngine.h" />
+    <ClInclude Include="src\Audio\MidiParser.h" />
+    <ClInclude Include="src\Util\Timer.h" />
+    <ClInclude Include="src\Util\Math.h" />
+    <ClInclude Include="src\Util\Color.h" />
+  </ItemGroup>
+
+  <!-- HLSL shaders -->
+  <ItemGroup>
+    <FxCompile Include="src\Shaders\particle.hlsl" />
+    <FxCompile Include="src\Shaders\note.hlsl" />
+    <FxCompile Include="src\Shaders\piano.hlsl" />
+    <FxCompile Include="src\Shaders\glow.hlsl" />
+    <FxCompile Include="src\Shaders\fullscreen.hlsl" />
+  </ItemGroup>
+
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets" />
+</Project>
