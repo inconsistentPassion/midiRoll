@@ -1,4 +1,5 @@
 #include "GameLoop.h"
+#include "Audio/AudioEngine.h"
 #include <string>
 #include <format>
 
@@ -9,7 +10,10 @@ static GameLoop* s_gameLoop = nullptr;
 bool GameLoop::Initialize(HINSTANCE hInstance, int nCmdShow) {
     s_gameLoop = this;
 
-    if (!m_window.Create(1280, 720, L"midiRoll")) return false;
+    if (!m_window.Create(1280, 720, L"midiRoll")) {
+        MessageBoxW(nullptr, L"Failed: Window.Create", L"Init Error", MB_OK);
+        return false;
+    }
 
     // Use lambdas as callbacks
     m_window.SetResizeCallback([](int w, int h) {
@@ -19,11 +23,24 @@ bool GameLoop::Initialize(HINSTANCE hInstance, int nCmdShow) {
         if (s_gameLoop) s_gameLoop->OnKey(k, d);
     });
 
-    if (!m_d3d.Initialize(m_window.Handle(), m_window.Width(), m_window.Height())) return false;
-    if (!m_spriteBatch.Initialize(m_d3d.Device())) return false;
-    if (!m_textRenderer.Initialize(m_d3d.Device(), m_d3d.Context(), m_d3d.SwapChain())) return false;
-    if (!m_bloom.Initialize(m_d3d.Device(), m_window.Width(), m_window.Height())) return false;
-    if (!m_sceneRT.Create(m_d3d.Device(), m_window.Width(), m_window.Height())) return false;
+    if (!m_d3d.Initialize(m_window.Handle(), m_window.Width(), m_window.Height())) {
+        MessageBoxW(nullptr, L"Failed: D3D.Initialize", L"Init Error", MB_OK);
+        return false;
+    }
+    // TextRenderer disabled - D2D HwndRenderTarget conflicts with D3D swap chain
+    // if (!m_textRenderer.Initialize(m_window.Handle())) { return false; }
+    if (!m_spriteBatch.Initialize(m_d3d.Device())) {
+        MessageBoxW(nullptr, L"Failed: SpriteBatch.Initialize", L"Init Error", MB_OK);
+        return false;
+    }
+    if (!m_bloom.Initialize(m_d3d.Device(), m_window.Width(), m_window.Height())) {
+        MessageBoxW(nullptr, L"Failed: Bloom.Initialize", L"Init Error", MB_OK);
+        return false;
+    }
+    if (!m_sceneRT.Create(m_d3d.Device(), m_window.Width(), m_window.Height())) {
+        MessageBoxW(nullptr, L"Failed: SceneRT.Create", L"Init Error", MB_OK);
+        return false;
+    }
 
     m_piano.Initialize(m_d3d.Device(), m_window.Width(), m_window.Height());
     m_audio.Initialize();
@@ -65,6 +82,7 @@ void GameLoop::OnResize(int width, int height) {
     m_d3d.Resize(width, height);
     m_sceneRT.Create(m_d3d.Device(), width, height);
     m_bloom.Resize(m_d3d.Device(), width, height);
+    // m_textRenderer.Resize(width, height);
     m_piano.Resize(width, height);
 }
 
@@ -103,6 +121,7 @@ void GameLoop::Update(double dt) {
         }
     }
 
+    SineVoice::CleanupDoneVoices();
     m_piano.Update(m_noteState, (float)currentTime, (float)dt);
     m_noteState.ClearRecentEvents();
 }
@@ -117,16 +136,25 @@ void GameLoop::Render(double) {
     m_piano.Render(m_spriteBatch, m_noteState, currentTime, (float)m_timer.Delta());
     m_spriteBatch.End(m_d3d.Context(), m_window.Width(), m_window.Height());
 
-    m_bloom.Apply(m_d3d.Context(), m_sceneRT.SRV(), m_d3d.BackBufferRTV(),
-                  m_window.Width(), m_window.Height());
+    // DEBUG: Skip bloom, render scene directly to back buffer
+    auto* rtv = m_d3d.BackBufferRTV(); m_d3d.Context()->OMSetRenderTargets(1, &rtv, nullptr);
+    D3D11_VIEWPORT vp{};
+    vp.Width = (float)m_window.Width(); vp.Height = (float)m_window.Height(); vp.MaxDepth = 1.0f;
+    m_d3d.Context()->RSSetViewports(1, &vp);
+    float black[] = {0.02f, 0.02f, 0.04f, 1.0f};
+    m_d3d.Context()->ClearRenderTargetView(m_d3d.BackBufferRTV(), black);
 
-    m_textRenderer.BeginDraw(m_d3d.Context());
-    auto fpsText = std::format(L"FPS: {} | Particles: {}", m_fpsDisplay, m_piano.particles.Count());
-    m_textRenderer.DrawText(fpsText, 10, 10, 1.0f, 1.0f, 1.0f, 0.8f);
+    m_spriteBatch.Begin(m_d3d.Context());
+    m_piano.Render(m_spriteBatch, m_noteState, currentTime, (float)m_timer.Delta());
+    m_spriteBatch.End(m_d3d.Context(), m_window.Width(), m_window.Height());
 
-    auto controls = L"Keys: A-L / W-E-T-Y-U-O-P = play notes | SPACE = toggle playback | ESC = quit";
-    m_textRenderer.DrawText(controls, 10, 40, 0.7f, 0.7f, 0.7f, 0.6f);
-    m_textRenderer.EndDraw();
+    // TextRenderer disabled - D2D conflicts with D3D
+    // m_textRenderer.BeginDraw();
+    // auto fpsText = std::format(L"FPS: {} | Particles: {}", m_fpsDisplay, m_piano.particles.Count());
+    // m_textRenderer.DrawText(fpsText, 10, 10, 1.0f, 1.0f, 1.0f, 0.8f);
+    // auto controls = L"Keys: A-L / W-E-T-Y-U-O-P = play notes | SPACE = toggle playback | ESC = quit";
+    // m_textRenderer.DrawText(controls, 10, 40, 0.7f, 0.7f, 0.7f, 0.6f);
+    // m_textRenderer.EndDraw();
 
     m_d3d.Present(true);
 }

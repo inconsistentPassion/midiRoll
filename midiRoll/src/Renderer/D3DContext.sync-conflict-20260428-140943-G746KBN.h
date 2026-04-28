@@ -13,7 +13,6 @@ namespace pfd {
 class D3DContext {
 public:
     bool Initialize(HWND hwnd, uint32_t width, uint32_t height);
-
     void Resize(uint32_t width, uint32_t height);
     void Present(bool vsync);
     void Clear(float r, float g, float b, float a = 1.0f);

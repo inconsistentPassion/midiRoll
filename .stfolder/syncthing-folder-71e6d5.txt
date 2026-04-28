@@ -1,0 +1,5 @@
+# This directory is a Syncthing folder marker.
+# Do not delete.
+
+folderID: 5nqm6-ngafx
+created: 2026-04-28T13:50:16-04:00

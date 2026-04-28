@@ -4,41 +4,49 @@
 
 namespace pfd {
 
-bool TextRenderer::Initialize(ID3D11Device* device, ID3D11DeviceContext* ctx, IDXGISwapChain* swapChain) {
-    D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, m_d2dFactory.GetAddressOf());
-    DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory),
-        reinterpret_cast<IUnknown**>(m_dwriteFactory.GetAddressOf()));
+bool TextRenderer::Initialize(HWND hwnd) {
+    HRESULT hr = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, m_d2dFactory.GetAddressOf());
+    if (FAILED(hr)) return false;
 
-    m_dwriteFactory->CreateTextFormat(
+    hr = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory),
+        reinterpret_cast<IUnknown**>(m_dwriteFactory.GetAddressOf()));
+    if (FAILED(hr)) return false;
+
+    hr = m_dwriteFactory->CreateTextFormat(
         L"Segoe UI", nullptr,
         DWRITE_FONT_WEIGHT_BOLD, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
         24.0f, L"en-us", m_textFormat.GetAddressOf()
     );
+    if (FAILED(hr)) return false;
+
     m_textFormat->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
     m_textFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
 
-    return CreateD2DResources(device, swapChain);
-}
+    // Get client rect for render target size
+    RECT rc;
+    GetClientRect(hwnd, &rc);
 
-bool TextRenderer::CreateD2DResources(ID3D11Device* device, IDXGISwapChain* swapChain) {
-    swapChain->GetBuffer(0, IID_PPV_ARGS(m_backBuffer.GetAddressOf()));
-
-    ComPtr<IDXGISurface> surface;
-    m_backBuffer.As(&surface);
-
-    D2D1_RENDER_TARGET_PROPERTIES props = D2D1::RenderTargetProperties(
-        D2D1_RENDER_TARGET_TYPE_DEFAULT,
-        D2D1::PixelFormat(DXGI_FORMAT_UNKNOWN, D2D1_ALPHA_MODE_PREMULTIPLIED)
+    D2D1_RENDER_TARGET_PROPERTIES rtProps = D2D1::RenderTargetProperties();
+    D2D1_HWND_RENDER_TARGET_PROPERTIES hwndProps = D2D1::HwndRenderTargetProperties(
+        hwnd, D2D1::SizeU(rc.right - rc.left, rc.bottom - rc.top)
     );
 
-    HRESULT hr = m_d2dFactory->CreateDxgiSurfaceRenderTarget(surface.Get(), &props, m_d2dRT.GetAddressOf());
+    hr = m_d2dFactory->CreateHwndRenderTarget(&rtProps, &hwndProps, m_d2dRT.GetAddressOf());
     if (FAILED(hr)) return false;
 
-    m_d2dRT->CreateSolidColorBrush(D2D1::ColorF(1,1,1,1), m_brush.GetAddressOf());
+    hr = m_d2dRT->CreateSolidColorBrush(D2D1::ColorF(1,1,1,1), m_brush.GetAddressOf());
+    if (FAILED(hr)) return false;
+
     return true;
 }
 
-void TextRenderer::BeginDraw(ID3D11DeviceContext*) {
+void TextRenderer::Resize(uint32_t width, uint32_t height) {
+    if (m_d2dRT) {
+        m_d2dRT->Resize(D2D1::SizeU(width, height));
+    }
+}
+
+void TextRenderer::BeginDraw() {
     m_d2dRT->BeginDraw();
 }
 

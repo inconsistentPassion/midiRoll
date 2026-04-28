@@ -16,7 +16,6 @@
 namespace pfd {
 
 // High-resolution timer (inlined to avoid include issues)
-namespace util {
 class Timer {
 public:
     using Clock = std::chrono::high_resolution_clock;
@@ -44,8 +43,6 @@ private:
     Clock::time_point m_start;
     Clock::time_point m_last;
 };
-
-} // namespace util
 
 class GameLoop {
 public:

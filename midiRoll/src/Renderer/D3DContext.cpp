@@ -83,6 +83,9 @@ bool D3DContext::Initialize(HWND hwnd, uint32_t width, uint32_t height) {
 
 void D3DContext::Resize(uint32_t width, uint32_t height) {
     if (width == 0 || height == 0) return;
+    // Note: width/height come from WM_SIZE which is logical; 
+    // but we store physical pixels from Initialize. Skip DPI here 
+    // since the caller already provides the right values after DPI fix.
     m_width = width;
     m_height = height;
 

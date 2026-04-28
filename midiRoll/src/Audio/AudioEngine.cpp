@@ -1,5 +1,6 @@
 #include "AudioEngine.h"
 #include <cmath>
+#include <algorithm>
 
 namespace pfd {
 
@@ -9,7 +10,6 @@ bool AudioEngine::Initialize() {
     if (FAILED(hr)) return false;
 
 #ifdef _DEBUG
-    // Enable XAudio2 debug output
     XAUDIO2_DEBUG_CONFIGURATION debug{};
     debug.TraceMask = XAUDIO2_LOG_ERRORS | XAUDIO2_LOG_WARNINGS;
     debug.BreakMask = XAUDIO2_LOG_ERRORS;
@@ -21,15 +21,46 @@ bool AudioEngine::Initialize() {
 }
 
 void AudioEngine::Shutdown() {
+    SineVoice::CleanupDoneVoices();
     if (m_masterVoice) { m_masterVoice->DestroyVoice(); m_masterVoice = nullptr; }
     if (m_xaudio2) { m_xaudio2->Release(); m_xaudio2 = nullptr; }
     CoUninitialize();
 }
 
+// ---- SineVoice statics ----
+
+std::vector<SineVoice*>& SineVoice::ActiveVoices() {
+    static std::vector<SineVoice*> voices;
+    return voices;
+}
+
+void SineVoice::CleanupDoneVoices() {
+    auto& voices = ActiveVoices();
+    for (auto* v : voices) {
+        if (v->IsDone()) v->Destroy();
+    }
+    voices.erase(
+        std::remove_if(voices.begin(), voices.end(),
+            [](SineVoice* v) { return v->IsDone(); }),
+        voices.end()
+    );
+}
+
+void SineVoice::Destroy() {
+    if (m_voice) {
+        m_voice->Stop();
+        m_voice->FlushSourceBuffers();
+        m_voice->DestroyVoice();
+        m_voice = nullptr;
+    }
+    delete this;
+}
+
 void AudioEngine::PlayBeep(int note, float duration, float volume) {
     if (!m_xaudio2) return;
     float freq = 440.0f * std::powf(2.0f, (note - 69) / 12.0f);
-    new SineVoice(m_xaudio2, freq, duration, volume); // self-destructs on completion
+    SineVoice* v = new SineVoice(m_xaudio2, freq, duration, volume);
+    SineVoice::ActiveVoices().push_back(v);
 }
 
 // ---- SineVoice ----
@@ -41,7 +72,6 @@ SineVoice::SineVoice(IXAudio2* xaudio2, float frequency, float duration, float v
 
     for (uint32_t i = 0; i < numSamples; i++) {
         float t = (float)i / sampleRate;
-        // Simple envelope: attack 5ms, decay, sustain, release
         float env = 1.0f;
         float attack = 0.005f;
         float release = 0.1f;
@@ -68,15 +98,9 @@ SineVoice::SineVoice(IXAudio2* xaudio2, float frequency, float duration, float v
     m_voice->Start(0);
 }
 
-SineVoice::~SineVoice() {
-    if (m_voice) {
-        m_voice->Stop();
-        m_voice->DestroyVoice();
-    }
-}
-
 void STDMETHODCALLTYPE SineVoice::OnBufferEnd(void*) {
-    delete this;
+    // Can't destroy voices in XAudio2 callback - defer to next frame
+    m_done = true;
 }
 
 } // namespace pfd

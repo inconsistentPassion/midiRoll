@@ -26,7 +26,6 @@ private:
 class SineVoice : public IXAudio2VoiceCallback {
 public:
     SineVoice(IXAudio2* xaudio2, float frequency, float duration, float volume);
-    ~SineVoice();
 
     void STDMETHODCALLTYPE OnStreamEnd() {}
     void STDMETHODCALLTYPE OnVoiceProcessingPassEnd() {}
@@ -36,9 +35,17 @@ public:
     void STDMETHODCALLTYPE OnLoopEnd(void*) {}
     void STDMETHODCALLTYPE OnVoiceError(void*, HRESULT) {}
 
+    bool IsDone() const { return m_done; }
+    void Destroy(); // Call outside XAudio2 callback
+
+    // Track active voices for deferred cleanup
+    static std::vector<SineVoice*>& ActiveVoices();
+    static void CleanupDoneVoices();
+
 private:
     IXAudio2SourceVoice* m_voice{};
     std::vector<float>   m_buffer;
+    bool                 m_done = false;
 };
 
 } // namespace pfd
