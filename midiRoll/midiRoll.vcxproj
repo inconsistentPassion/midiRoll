@@ -73,12 +73,7 @@
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalDependencies>d3d11.lib;dxgi.lib;d3dcompiler.lib;dxguid.lib;xaudio2.lib;windowscodecs.lib;dwrite.lib;d2d1.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
-    <FxCompile>
-      <ShaderType />
-      <ShaderModel>5.0</ShaderModel>
-      <ObjectFileOutput>$(SolutionDir)bin\$(Configuration)\shaders\%(Filename).cso</ObjectFileOutput>
-      <HeaderFileOutput>$(SolutionDir)bin\$(Configuration)\shaders\%(Filename).h</HeaderFileOutput>
-    </FxCompile>
+
   </ItemDefinitionGroup>
 
   <!-- Release compile/link -->
@@ -101,11 +96,7 @@
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalDependencies>d3d11.lib;dxgi.lib;d3dcompiler.lib;dxguid.lib;xaudio2.lib;windowscodecs.lib;dwrite.lib;d2d1.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
-    <FxCompile>
-      <ShaderModel>5.0</ShaderModel>
-      <ObjectFileOutput>$(SolutionDir)bin\$(Configuration)\shaders\%(Filename).cso</ObjectFileOutput>
-      <HeaderFileOutput>$(SolutionDir)bin\$(Configuration)\shaders\%(Filename).h</HeaderFileOutput>
-    </FxCompile>
+
   </ItemDefinitionGroup>
 
   <!-- Source files -->
@@ -148,13 +139,13 @@
     <ClInclude Include="src\Util\Color.h" />
   </ItemGroup>
 
-  <!-- HLSL shaders -->
+  <!-- HLSL shaders (reference only — compiled at runtime via D3DCompile) -->
   <ItemGroup>
-    <FxCompile Include="src\Shaders\particle.hlsl" />
-    <FxCompile Include="src\Shaders\note.hlsl" />
-    <FxCompile Include="src\Shaders\piano.hlsl" />
-    <FxCompile Include="src\Shaders\glow.hlsl" />
-    <FxCompile Include="src\Shaders\fullscreen.hlsl" />
+    <None Include="src\Shaders\particle.hlsl" />
+    <None Include="src\Shaders\note.hlsl" />
+    <None Include="src\Shaders\piano.hlsl" />
+    <None Include="src\Shaders\glow.hlsl" />
+    <None Include="src\Shaders\fullscreen.hlsl" />
   </ItemGroup>
 
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
