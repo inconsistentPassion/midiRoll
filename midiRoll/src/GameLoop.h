@@ -11,9 +11,38 @@
 #include "Audio/AudioEngine.h"
 #include "Audio/MidiParser.h"
 #include "Input.h"
-#include "Util/Timer.h"
+#include <chrono>
 
 namespace pfd {
+
+// High-resolution timer (inlined to avoid include issues)
+class Timer {
+public:
+    using Clock = std::chrono::high_resolution_clock;
+    using Duration = std::chrono::duration<double>;
+
+    Timer() : m_start(Clock::now()), m_last(Clock::now()) {}
+
+    double Delta() {
+        auto now = Clock::now();
+        double dt = Duration(now - m_last).count();
+        m_last = now;
+        return (dt > 0.1) ? 0.1 : dt;
+    }
+
+    double Elapsed() const {
+        return Duration(Clock::now() - m_start).count();
+    }
+
+    void Reset() {
+        m_start = Clock::now();
+        m_last = Clock::now();
+    }
+
+private:
+    Clock::time_point m_start;
+    Clock::time_point m_last;
+};
 
 class GameLoop {
 public:
