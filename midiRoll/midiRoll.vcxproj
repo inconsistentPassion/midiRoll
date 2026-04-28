@@ -76,7 +76,6 @@
     <FxCompile>
       <ShaderType />
       <ShaderModel>5.0</ShaderModel>
-      <AdditionalOptions>/Zi %(AdditionalOptions)</AdditionalOptions>
       <ObjectFileOutput>$(SolutionDir)bin\$(Configuration)\shaders\%(Filename).cso</ObjectFileOutput>
       <HeaderFileOutput>$(SolutionDir)bin\$(Configuration)\shaders\%(Filename).h</HeaderFileOutput>
     </FxCompile>
