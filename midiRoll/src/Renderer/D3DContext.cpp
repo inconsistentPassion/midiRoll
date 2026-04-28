@@ -25,9 +25,12 @@ bool D3DContext::Initialize(HWND hwnd, uint32_t width, uint32_t height) {
     desc.SwapEffect                         = DXGI_SWAP_EFFECT_DISCARD;
 
     UINT flags = 0;
+    // Disabled debug flag due to missing SDK layers on target system
+    /*
 #ifdef _DEBUG
     flags |= D3D11_CREATE_DEVICE_DEBUG;
 #endif
+    */
 
     D3D_FEATURE_LEVEL levels[] = {
         D3D_FEATURE_LEVEL_11_1,
@@ -42,6 +45,19 @@ bool D3DContext::Initialize(HWND hwnd, uint32_t width, uint32_t height) {
         m_device.GetAddressOf(), &m_featureLevel,
         m_context.GetAddressOf()
     );
+
+    // Fallback if Debug Layer is missing
+    if (FAILED(hr) && (flags & D3D11_CREATE_DEVICE_DEBUG)) {
+        flags &= ~D3D11_CREATE_DEVICE_DEBUG;
+        hr = D3D11CreateDeviceAndSwapChain(
+            nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr,
+            flags, levels, _countof(levels),
+            D3D11_SDK_VERSION,
+            &desc, m_swapChain.GetAddressOf(),
+            m_device.GetAddressOf(), &m_featureLevel,
+            m_context.GetAddressOf()
+        );
+    }
 
     if (FAILED(hr)) return false;
 

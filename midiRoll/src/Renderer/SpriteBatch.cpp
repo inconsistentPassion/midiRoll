@@ -108,6 +108,7 @@ bool SpriteBatch::Initialize(ID3D11Device* device) {
     // Index buffer
     uint16_t indices[] = {0, 1, 2, 0, 2, 3};
     bd.ByteWidth = sizeof(indices);
+    bd.BindFlags = D3D11_BIND_INDEX_BUFFER;
     init.pSysMem = indices;
     device->CreateBuffer(&bd, &init, m_indexBuffer.GetAddressOf());
 
@@ -119,9 +120,10 @@ bool SpriteBatch::Initialize(ID3D11Device* device) {
     device->CreateBuffer(&bd, nullptr, m_instanceBuffer.GetAddressOf());
 
     // Constant buffer
-    bd.ByteWidth = sizeof(CBPerFrame);
-    bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-    bd.CPUAccessFlags = 0;
+    bd.ByteWidth      = sizeof(CBPerFrame);
+    bd.BindFlags      = D3D11_BIND_CONSTANT_BUFFER;
+    bd.Usage          = D3D11_USAGE_DYNAMIC;
+    bd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
     device->CreateBuffer(&bd, nullptr, m_cbPerFrame.GetAddressOf());
 
     // Blend state (alpha blending)

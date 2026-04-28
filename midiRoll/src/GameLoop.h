@@ -75,7 +75,7 @@ private:
     // Game state
     PianoRenderer m_piano;
     Input         m_input;
-    Timer         m_timer;
+    util::Timer   m_timer;
 
     // Playback
     double  m_playbackTime{};

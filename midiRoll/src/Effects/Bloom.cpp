@@ -122,8 +122,10 @@ bool Bloom::Initialize(ID3D11Device* device, uint32_t width, uint32_t height) {
 
     // Constant buffer for blur params
     D3D11_BUFFER_DESC bd{};
-    bd.ByteWidth = 16;
-    bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+    bd.ByteWidth      = 16;
+    bd.BindFlags      = D3D11_BIND_CONSTANT_BUFFER;
+    bd.Usage          = D3D11_USAGE_DYNAMIC;
+    bd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
     device->CreateBuffer(&bd, nullptr, m_cbBlur.GetAddressOf());
 
     return true;
