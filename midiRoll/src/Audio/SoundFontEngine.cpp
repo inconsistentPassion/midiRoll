@@ -100,47 +100,32 @@ void SoundFontEngine::ProcessEvents() {
 } // namespace pfd
 
 #else
-// === Fallback: XAudio2 sine wave (no FluidSynth) ===
-#include "AudioEngine.h"
-static pfd::AudioEngine s_fallbackEngine;
-static bool s_fallbackInit = false;
-
+// === Fallback stub when FluidSynth not available ===
 namespace pfd {
 
 bool SoundFontEngine::Initialize() {
-    if (!s_fallbackInit) { s_fallbackInit = s_fallbackEngine.Initialize(); }
-    m_initialized = s_fallbackInit;
-    return m_initialized;
+    m_initialized = false;
+    return false;
 }
 
 void SoundFontEngine::Shutdown() {
-    s_fallbackEngine.Shutdown();
-    s_fallbackInit = false;
     m_initialized = false;
 }
 
-bool SoundFontEngine::LoadSoundFont(const std::string& path) {
-    m_soundFontPath = path;
-    m_soundFontLoaded = true;
-    return true;
+bool SoundFontEngine::LoadSoundFont(const std::string&) {
+    return false;
 }
 
-void SoundFontEngine::NoteOn(int, int note, int velocity) {
-    if (!m_initialized) return;
-    float dur = 0.3f + (velocity / 127.0f) * 0.5f;
-    float vol = (velocity / 127.0f) * m_volume * 0.15f;
-    s_fallbackEngine.PlayBeep(note, dur, vol);
-}
-
+void SoundFontEngine::NoteOn(int, int, int) {}
 void SoundFontEngine::NoteOff(int, int) {}
 void SoundFontEngine::ControlChange(int, int, int) {}
 void SoundFontEngine::PitchBend(int, int) {}
 void SoundFontEngine::ProgramChange(int, int) {}
 void SoundFontEngine::ChannelPressure(int, int) {}
 void SoundFontEngine::KeyPressure(int, int, int) {}
-void SoundFontEngine::AllNotesOff() { SineVoice::CleanupDoneVoices(); }
-void SoundFontEngine::SetVolume(float v) { m_volume = std::clamp(v, 0.f, 1.f); }
-void SoundFontEngine::ProcessEvents() { if (m_initialized) SineVoice::CleanupDoneVoices(); }
+void SoundFontEngine::AllNotesOff() {}
+void SoundFontEngine::SetVolume(float) {}
+void SoundFontEngine::ProcessEvents() {}
 
 } // namespace pfd
 #endif

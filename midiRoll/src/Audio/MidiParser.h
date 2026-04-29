@@ -15,7 +15,8 @@ struct Note {
 };
 
 struct MidiEvent {
-    double   time;      // absolute time in seconds
+    double   time;      // absolute time in seconds (for display/sorting)
+    uint32_t tick;      // absolute tick position (for tempo-aware playback)
     uint8_t  status;    // status byte (event type + channel)
     uint8_t  data1;     // note number / controller
     uint8_t  data2;     // velocity / value
@@ -52,6 +53,9 @@ public:
     // Tempo map access
     const std::vector<TempoEntry>& TempoMap() const { return m_tempoMap; }
     const std::vector<Note>& Notes() const { return m_notes; }
+    
+    // Convert playback time (seconds) to MIDI ticks for tempo-aware seeking
+    uint32_t SecondsToTicks(double seconds) const;
 
 private:
     bool ParseTrack(const uint8_t*& ptr, const uint8_t* end, MidiTrack& track, uint32_t& trackTickAccum);
@@ -62,6 +66,9 @@ private:
 
     std::vector<MidiTrack> m_tracks;
     uint16_t m_ticksPerQuarter = 480;
+    bool     m_usingSmpte = false;
+    uint8_t  m_smpteFps = 24;
+    uint8_t  m_ticksPerFrame = 80;
     uint16_t m_bpm = 120;
     double   m_duration = 0;
 

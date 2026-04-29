@@ -161,7 +161,7 @@ void SpriteBatch::Begin(ID3D11DeviceContext* ctx, uint32_t viewWidth, uint32_t v
     m_ctx = ctx;
     m_viewW = viewWidth;
     m_viewH = viewHeight;
-    m_instances.clear();
+    m_instances.clear(); // capacity is retained; no reserve needed
     m_currentTex = m_whiteTexture.Get();
     m_additive = false;
 }

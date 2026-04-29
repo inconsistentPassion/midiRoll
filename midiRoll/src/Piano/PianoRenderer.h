@@ -20,7 +20,7 @@ class PianoRenderer {
 public:
     bool Initialize(ID3D11Device* device, uint32_t viewW, uint32_t viewH);
     void Resize(uint32_t viewW, uint32_t viewH);
-    void Update(const NoteState& state, float currentTime, float dt);
+    void Update(NoteState& state, float currentTime, float dt);
     void Render(SpriteBatch& batch, const NoteState& state, const std::vector<Note>& midiNotes, float liveTime, float midiPlaybackTime, float dt);
 
     void SetNoteSpeed(float s) { m_noteSpeed = s; }

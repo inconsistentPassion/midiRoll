@@ -4,6 +4,12 @@
 
 namespace pfd {
 
+#ifdef _DEBUG
+static constexpr UINT kShaderCompileFlags = D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION;
+#else
+static constexpr UINT kShaderCompileFlags = D3DCOMPILE_OPTIMIZATION_LEVEL3;
+#endif
+
 ShaderManager::ShaderManager(ID3D11Device* device) : m_device(device) {}
 
 bool ShaderManager::LoadShader(const std::string& name, const std::wstring& path,
@@ -13,7 +19,7 @@ bool ShaderManager::LoadShader(const std::string& name, const std::wstring& path
     // Compile VS
     ComPtr<ID3DBlob> vsBlob, errBlob;
     HRESULT hr = D3DCompileFromFile(path.c_str(), nullptr, D3D_COMPILE_STANDARD_FILE_INCLUDE,
-        vsEntry.c_str(), "vs_5_0", D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION, 0,
+        vsEntry.c_str(), "vs_5_0", kShaderCompileFlags, 0,
         vsBlob.GetAddressOf(), errBlob.GetAddressOf());
     if (FAILED(hr)) {
         if (errBlob) OutputDebugStringA((char*)errBlob->GetBufferPointer());
@@ -28,7 +34,7 @@ bool ShaderManager::LoadShader(const std::string& name, const std::wstring& path
     // Compile PS
     ComPtr<ID3DBlob> psBlob;
     hr = D3DCompileFromFile(path.c_str(), nullptr, D3D_COMPILE_STANDARD_FILE_INCLUDE,
-        psEntry.c_str(), "ps_5_0", D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION, 0,
+        psEntry.c_str(), "ps_5_0", kShaderCompileFlags, 0,
         psBlob.GetAddressOf(), errBlob.GetAddressOf());
     if (FAILED(hr)) {
         if (errBlob) OutputDebugStringA((char*)errBlob->GetBufferPointer());
@@ -48,7 +54,7 @@ bool ShaderManager::LoadComputeShader(const std::string& name, const std::wstrin
     ShaderSet set;
     ComPtr<ID3DBlob> csBlob, errBlob;
     HRESULT hr = D3DCompileFromFile(path.c_str(), nullptr, D3D_COMPILE_STANDARD_FILE_INCLUDE,
-        csEntry.c_str(), "cs_5_0", D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION, 0,
+        csEntry.c_str(), "cs_5_0", kShaderCompileFlags, 0,
         csBlob.GetAddressOf(), errBlob.GetAddressOf());
     if (FAILED(hr)) {
         if (errBlob) OutputDebugStringA((char*)errBlob->GetBufferPointer());

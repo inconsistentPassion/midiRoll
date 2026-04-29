@@ -114,10 +114,8 @@
     <ClCompile Include="src\Renderer\FontRenderer.cpp" />
     <ClCompile Include="src\Renderer\RenderTarget.cpp" />
     <ClCompile Include="src\Effects\ParticleSystem.cpp" />
-    <ClCompile Include="src\Effects\Bloom.cpp" />
     <ClCompile Include="src\Piano\PianoRenderer.cpp" />
     <ClCompile Include="src\Piano\NoteState.cpp" />
-    <ClCompile Include="src\Audio\AudioEngine.cpp" />
     <ClCompile Include="src\Audio\MidiParser.cpp" />
     <ClCompile Include="src\Audio\SoundFontEngine.cpp" />
   </ItemGroup>
@@ -135,10 +133,8 @@
     <ClInclude Include="src\Renderer\stb_truetype.h" />
     <ClInclude Include="src\Renderer\RenderTarget.h" />
     <ClInclude Include="src\Effects\ParticleSystem.h" />
-    <ClInclude Include="src\Effects\Bloom.h" />
     <ClInclude Include="src\Piano\PianoRenderer.h" />
     <ClInclude Include="src\Piano\NoteState.h" />
-    <ClInclude Include="src\Audio\AudioEngine.h" />
     <ClInclude Include="src\Audio\MidiParser.h" />
     <ClInclude Include="src\Audio\SoundFontEngine.h" />
     <ClInclude Include="src\Util\Timer.h" />

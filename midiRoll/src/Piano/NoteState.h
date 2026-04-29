@@ -2,6 +2,7 @@
 #include <cstdint>
 #include <array>
 #include <vector>
+#include <unordered_map>
 
 namespace pfd {
 
@@ -43,8 +44,14 @@ public:
     static constexpr int LAST_KEY  = 108;
 
 private:
+    // Hash key for (note, channel) pair
+    static uint32_t MakeNoteKey(int note, int channel) {
+        return (static_cast<uint32_t>(note) << 8) | static_cast<uint32_t>(channel);
+    }
+    
     std::array<NoteInfo, NOTE_COUNT> m_keyState{};
     std::vector<ActiveVisualNote> m_visualNotes;
+    std::unordered_map<uint32_t, size_t> m_visualNoteIndex; // (note,channel) -> index in m_visualNotes
     std::vector<int> m_recentOns;
 };
 

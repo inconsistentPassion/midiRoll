@@ -27,8 +27,8 @@ bool GameLoop::Initialize(HINSTANCE hInstance, int nCmdShow) {
     m_window.SetKeyCallback([](int k, bool d) {
         if (s_gameLoop) s_gameLoop->OnKey(k, d);
     });
-    m_window.SetMouseCallback([](int x, int y, bool d, bool m) {
-        if (s_gameLoop) s_gameLoop->OnMouse(x, y, d, m);
+    m_window.SetMouseCallback([](int x, int y, bool down, bool move) {
+        if (s_gameLoop) s_gameLoop->OnMouse(x, y, down, move);
     });
 
     if (!m_d3d.Initialize(m_window.Handle(), m_window.Width(), m_window.Height())) {
@@ -52,6 +52,7 @@ bool GameLoop::Initialize(HINSTANCE hInstance, int nCmdShow) {
 }
 
 void GameLoop::OnMouse(int x, int y, bool down, bool move) {
+    (void)move;
     if (m_menuOpen) {
         if (!down || move) return;
         // Menu item selection
@@ -75,20 +76,42 @@ void GameLoop::OnMouse(int x, int y, bool down, bool move) {
         return;
     }
 
+    double renderTime = m_midiLoaded ? m_playbackTime : m_timer.Elapsed();
+
     // Piano interaction
+    int currentKey = -1;
     if (y >= m_piano.GetPianoY() && y <= m_window.Height()) {
         for (int n = NoteState::FIRST_KEY; n <= NoteState::LAST_KEY; n++) {
             float kx = m_piano.GetKeyX(n);
             float kw = m_piano.GetKeyWidth(n);
             if (x >= kx && x <= kx + kw) {
-                if (down && !move) {
-                    m_noteState.NoteOn(n, 100, 0, m_timer.Elapsed());
-                    m_audio.NoteOn(0, n, 100);
-                } else if (!down && !move) {
-                    m_noteState.NoteOff(n, 0, m_timer.Elapsed());
-                    m_audio.NoteOff(0, n);
-                }
+                currentKey = n;
                 break;
+            }
+        }
+    }
+
+    if (down) {
+        // If we moved to a new key while holding down, release the old one and press the new one
+        for (int n = 0; n < 128; n++) {
+            if (m_mouseNotes[n] && n != currentKey) {
+                m_noteState.NoteOff(n, 0, renderTime);
+                m_audio.NoteOff(0, n);
+                m_mouseNotes[n] = false;
+            }
+        }
+        if (currentKey != -1 && !m_mouseNotes[currentKey]) {
+            m_noteState.NoteOn(currentKey, 100, 0, renderTime);
+            m_audio.NoteOn(0, currentKey, 100);
+            m_mouseNotes[currentKey] = true;
+        }
+    } else {
+        // Release all keys when mouse is up
+        for (int n = 0; n < 128; n++) {
+            if (m_mouseNotes[n]) {
+                m_noteState.NoteOff(n, 0, renderTime);
+                m_audio.NoteOff(0, n);
+                m_mouseNotes[n] = false;
             }
         }
     }
@@ -206,9 +229,22 @@ void GameLoop::Update(double dt) {
     m_input.ClearEvents();
 
     if (m_midiLoaded && m_playing) {
+        // Advance playback time and convert to ticks for tempo-aware positioning
         m_playbackTime += dt;
+        m_playbackTick = m_midi.SecondsToTicks(m_playbackTime);
+
+        // Loop back to the start when the end of the file is reached
+        if (m_playbackTime >= m_midi.Duration()) {
+            m_playbackTime = 0.0;
+            m_playbackTick = 0;
+            m_nextEventIdx = 0;
+            m_noteState.AllNotesOff(0.0);
+            m_audio.AllNotesOff();
+        }
+        
+        // Process events up to current tick position
         while (m_nextEventIdx < m_sortedEvents.size() &&
-               m_sortedEvents[m_nextEventIdx].time <= m_playbackTime) {
+               m_sortedEvents[m_nextEventIdx].tick <= m_playbackTick) {
             auto& ev = m_sortedEvents[m_nextEventIdx];
             uint8_t type = ev.status & 0xF0;
             uint8_t chan = ev.status & 0x0F;
@@ -397,6 +433,7 @@ void GameLoop::LoadMidiFile(const std::wstring& path) {
         m_sortedEvents = m_midi.GetAllEventsSorted();
         m_nextEventIdx = 0;
         m_playbackTime = 0;
+        m_playbackTick = 0;
         m_playing = true;
         
         int nlen = WideCharToMultiByte(CP_UTF8, 0, path.c_str(), -1, nullptr, 0, nullptr, nullptr);
@@ -443,7 +480,7 @@ void GameLoop::TryAutoLoadSoundFont() {
 
     for (auto& d : dirs) {
         for (int n = 0; names[n]; n++) {
-            std::string p = d + "\\" + names[n];
+            auto p = (std::filesystem::path(d) / names[n]).string();
             if (std::filesystem::exists(p)) {
                 if (m_audio.LoadSoundFont(p)) return;
             }

@@ -49,7 +49,17 @@ bool MidiParser::LoadFromMemory(const uint8_t* data, size_t size) {
     uint32_t headerLen = ReadU32BE(ptr); ptr += 4;
     (void)ReadU16BE(ptr); ptr += 2; // format (unused)
     uint16_t numTracks = ReadU16BE(ptr); ptr += 2;
-    m_ticksPerQuarter  = ReadU16BE(ptr); ptr += 2;
+    uint16_t division  = ReadU16BE(ptr); ptr += 2;
+    
+    if (division & 0x8000) {
+        m_usingSmpte = true;
+        m_smpteFps = (uint8_t)(-(int8_t)(division >> 8));
+        m_ticksPerFrame = (uint8_t)(division & 0xFF);
+        if (m_smpteFps == 29) m_smpteFps = 30; // Handle 29.97 approximate
+    } else {
+        m_usingSmpte = false;
+        m_ticksPerQuarter = division;
+    }
     (void)headerLen;
 
     m_tracks.clear();
@@ -77,14 +87,18 @@ bool MidiParser::LoadFromMemory(const uint8_t* data, size_t size) {
 void MidiParser::BuildNoteList() {
     m_notes.clear();
     for (const auto& track : m_tracks) {
+        // Key is (channel << 8) | note so that the same note number on different
+        // channels is tracked independently, matching multi-track MIDI correctly.
         std::map<int, MidiEvent> active;
         for (const auto& ev : track.events) {
+            int channel = ev.status & 0x0F;
+            int key = (channel << 8) | ev.data1;
             if (ev.isNoteOn) {
-                active[ev.data1] = ev;
+                active[key] = ev;
             } else if (ev.isNoteOff) {
-                auto it = active.find(ev.data1);
+                auto it = active.find(key);
                 if (it != active.end()) {
-                    m_notes.push_back({it->second.time, ev.time, it->second.status & 0x0F, ev.data1, it->second.data2});
+                    m_notes.push_back({it->second.time, ev.time, channel, ev.data1, it->second.data2});
                     active.erase(it);
                 }
             }
@@ -115,6 +129,7 @@ bool MidiParser::ParseTrack(const uint8_t*& ptr, const uint8_t* end, MidiTrack& 
         if (type == 0x90 || type == 0x80) {
             ev.data1 = *ptr++;
             ev.data2 = *ptr++;
+            ev.tick = trackTickAccum;
             ev.isNoteOn  = (type == 0x90 && ev.data2 > 0);
             ev.isNoteOff = (type == 0x80) || (type == 0x90 && ev.data2 == 0);
             ev.time = (double)trackTickAccum;
@@ -122,10 +137,12 @@ bool MidiParser::ParseTrack(const uint8_t*& ptr, const uint8_t* end, MidiTrack& 
         } else if (type == 0xA0 || type == 0xB0 || type == 0xE0) {
             ev.data1 = *ptr++;
             ev.data2 = *ptr++;
+            ev.tick = trackTickAccum;
             ev.time = (double)trackTickAccum;
             track.events.push_back(ev);
         } else if (type == 0xC0 || type == 0xD0) {
             ev.data1 = *ptr++;
+            ev.tick = trackTickAccum;
             ev.time = (double)trackTickAccum;
             track.events.push_back(ev);
         } else if (status == 0xFF) {
@@ -204,6 +221,10 @@ void MidiParser::BuildTempoMap() {
 }
 
 double MidiParser::TicksToSeconds(uint32_t tick) const {
+    if (m_usingSmpte) {
+        return (double)tick / (double)(m_smpteFps * m_ticksPerFrame);
+    }
+
     if (m_tempoMap.empty()) {
         // Fallback: 120 BPM
         return (double)tick * 500000.0 / (1000000.0 * m_ticksPerQuarter);
@@ -229,11 +250,38 @@ double MidiParser::TicksToSeconds(uint32_t tick) const {
     return entry.secondsAtTick + tickDelta * secondsPerTick;
 }
 
+uint32_t MidiParser::SecondsToTicks(double seconds) const {
+    if (m_tempoMap.empty()) {
+        // Fallback: 120 BPM
+        return (uint32_t)(seconds * 1000000.0 * m_ticksPerQuarter / 500000.0);
+    }
+    
+    // Find the tempo entry at or before this time
+    size_t lo = 0, hi = m_tempoMap.size();
+    while (lo < hi) {
+        size_t mid = lo + (hi - lo) / 2;
+        if (m_tempoMap[mid].secondsAtTick <= seconds) {
+            lo = mid + 1;
+        } else {
+            hi = mid;
+        }
+    }
+    // lo is now one past the last entry <= seconds
+    size_t idx = (lo > 0) ? lo - 1 : 0;
+    
+    const auto& entry = m_tempoMap[idx];
+    double remainingSeconds = seconds - entry.secondsAtTick;
+    double secondsPerTick = (double)entry.usPerQuarter / (1000000.0 * m_ticksPerQuarter);
+    uint32_t tickDelta = (uint32_t)(remainingSeconds / secondsPerTick);
+    
+    return entry.tick + tickDelta;
+}
+
 void MidiParser::CalculateAbsoluteTimes() {
-    // Convert all event times from absolute ticks to seconds
+    // Convert all event times from absolute ticks to seconds, preserving tick values
     for (auto& track : m_tracks) {
         for (auto& ev : track.events) {
-            uint32_t absTick = (uint32_t)ev.time;
+            uint32_t absTick = ev.tick;  // Use stored tick value
             ev.time = TicksToSeconds(absTick);
         }
     }

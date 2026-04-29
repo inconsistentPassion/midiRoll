@@ -69,9 +69,9 @@ void PianoRenderer::ComputeKeyLayout() {
     }
 }
 
-void PianoRenderer::Update(const NoteState& state, float currentTime, float dt) {
+void PianoRenderer::Update(NoteState& state, float currentTime, float dt) {
     particles.Update(dt);
-    const_cast<NoteState&>(state).UpdateVisualNotes(currentTime);
+    state.UpdateVisualNotes(currentTime);
 
     for (int n = NoteState::FIRST_KEY; n <= NoteState::LAST_KEY; n++) {
         if (state[n].active) {
@@ -183,25 +183,27 @@ void PianoRenderer::Render(SpriteBatch& batch, const NoteState& state, const std
         batch.Draw({x, y + capH + midH}, {w, capH}, color, {0.0f, 0.5f}, {1.0f, 0.5f});
     };
 
-    // 1. Draw MIDI notes (respect m_falling setting)
+    // 1. Draw MIDI notes (Future parts)
     for (const auto& note : midiNotes) {
         float noteX = m_keys[note.note].x + 1;
         float noteW = m_keys[note.note].width - 2;
         float yS, yE;
 
         if (m_falling) {
-            // Future only for MIDI notes
-            if (note.start < midiPlaybackTime || note.start > midiPlaybackTime + 5.0) continue;
+            // Draw part of note that hasn't hit the piano yet (above pianoY)
+            if (note.end < midiPlaybackTime || note.start > midiPlaybackTime + 5.0) continue;
             yE = m_pianoY - (float)(note.start - midiPlaybackTime) * m_noteSpeed;
             yS = m_pianoY - (float)(note.end - midiPlaybackTime) * m_noteSpeed;
+            
+            if (yE > m_pianoY) yE = m_pianoY; // Only draw above piano
             if (yS < 0) yS = 0;
-            if (yE > m_pianoY) yE = m_pianoY;
         } else {
-            // Future only for MIDI notes (invisible if below piano)
-            if (note.start < midiPlaybackTime || note.start > midiPlaybackTime + 5.0) continue;
+            // Draw part of note that hasn't hit the piano yet (below pianoY)
+            if (note.end < midiPlaybackTime || note.start > midiPlaybackTime + 5.0) continue;
             yE = m_pianoY + (float)(note.start - midiPlaybackTime) * m_noteSpeed;
             yS = m_pianoY + (float)(note.end - midiPlaybackTime) * m_noteSpeed;
-            if (yE < m_pianoY) yE = m_pianoY;
+            
+            if (yE < m_pianoY) yE = m_pianoY; // Only draw below piano
             if (yS > (float)m_viewH) yS = (float)m_viewH;
         }
 
