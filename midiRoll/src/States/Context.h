@@ -8,6 +8,7 @@
 #include "../Audio/SoundFontEngine.h"
 #include "../Audio/MidiParser.h"
 #include "../Input.h"
+#include "../Input/MidiInput.h"
 #include "../Util/Timer.h"
 
 namespace pfd {
@@ -23,6 +24,7 @@ struct Context {
     SoundFontEngine* audio{};
     MidiParser*      midi{};
     Input*           input{};
+    MidiInput*       midiInput{};
     util::Timer*     timer{};
 
     // Paths (persisted across states)

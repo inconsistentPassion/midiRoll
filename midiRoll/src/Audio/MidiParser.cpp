@@ -91,7 +91,7 @@ void MidiParser::BuildNoteList() {
         // channels is tracked independently, matching multi-track MIDI correctly.
         std::map<int, MidiEvent> active;
         for (const auto& ev : track.events) {
-            int channel = ev.status & 0x0F;
+            int channel = ev.globalChannel;
             int key = (channel << 8) | ev.data1;
             if (ev.isNoteOn) {
                 active[key] = ev;
@@ -108,6 +108,7 @@ void MidiParser::BuildNoteList() {
 
 bool MidiParser::ParseTrack(const uint8_t*& ptr, const uint8_t* end, MidiTrack& track, uint32_t& trackTickAccum) {
     uint8_t runningStatus = 0;
+    uint8_t currentPort = 0;
 
     while (ptr < end) {
         uint32_t deltaTicks = ReadVarLen(ptr);
@@ -133,17 +134,20 @@ bool MidiParser::ParseTrack(const uint8_t*& ptr, const uint8_t* end, MidiTrack& 
             ev.isNoteOn  = (type == 0x90 && ev.data2 > 0);
             ev.isNoteOff = (type == 0x80) || (type == 0x90 && ev.data2 == 0);
             ev.time = (double)trackTickAccum;
+            ev.globalChannel = (currentPort % 4) * 16 + (status & 0x0F);
             track.events.push_back(ev);
         } else if (type == 0xA0 || type == 0xB0 || type == 0xE0) {
             ev.data1 = *ptr++;
             ev.data2 = *ptr++;
             ev.tick = trackTickAccum;
             ev.time = (double)trackTickAccum;
+            ev.globalChannel = (currentPort % 4) * 16 + (status & 0x0F);
             track.events.push_back(ev);
         } else if (type == 0xC0 || type == 0xD0) {
             ev.data1 = *ptr++;
             ev.tick = trackTickAccum;
             ev.time = (double)trackTickAccum;
+            ev.globalChannel = (currentPort % 4) * 16 + (status & 0x0F);
             track.events.push_back(ev);
         } else if (status == 0xFF) {
             runningStatus = 0; // Clear running status for meta events
@@ -157,13 +161,27 @@ bool MidiParser::ParseTrack(const uint8_t*& ptr, const uint8_t* end, MidiTrack& 
             if (metaType == 0x03) {
                 track.name = std::string((const char*)ptr, metaLen);
             }
+            if (metaType == 0x21 && metaLen == 1) {
+                currentPort = ptr[0];
+            }
             ptr += metaLen;
         } else if (status == 0xF0) {
-            // SysEx
+            // SysEx start: F0 <varlen> <data…>  (data includes the F7 terminator)
+            runningStatus = 0; // SysEx clears running status
             uint32_t sysexLen = ReadVarLen(ptr);
             ptr += sysexLen;
+        } else if (status == 0xF7) {
+            // SysEx escape / continuation: F7 <varlen> <data…>
+            runningStatus = 0;
+            uint32_t sysexLen = ReadVarLen(ptr);
+            ptr += sysexLen;
+        } else if (status >= 0xF0) {
+            // System Real-Time / System Common (0xF1-0xF6, 0xF8-0xFE):
+            // These have no data bytes in a MIDI file chunk and do not affect running status.
+            // Just ignore — do NOT advance ptr (the byte was already consumed above).
+            (void)0;
         } else {
-            // Skip unknown
+            // Unknown: skip one byte to stay in sync
             ptr++;
         }
     }
@@ -302,8 +320,27 @@ std::vector<MidiEvent> MidiParser::GetAllEventsSorted() const {
             all.push_back(ev);
         }
     }
-    std::sort(all.begin(), all.end(), [](const MidiEvent& a, const MidiEvent& b) {
-        return a.time < b.time;
+
+    // Priority within same tick: ProgramChange(0xC0) first, then CC(0xB0)/PitchBend(0xE0)/
+    // Pressure, then NoteOff(0x80), then NoteOn(0x90). This ensures instruments are set
+    // before notes play, and sustain pedal changes land before note-on.
+    auto eventPriority = [](uint8_t status) -> int {
+        uint8_t type = status & 0xF0;
+        switch (type) {
+        case 0xC0: return 0; // Program Change
+        case 0xD0: return 1; // Channel Pressure
+        case 0xB0: return 2; // Control Change (sustain, volume, pan, etc.)
+        case 0xE0: return 3; // Pitch Bend
+        case 0xA0: return 4; // Key Pressure
+        case 0x80: return 5; // Note Off
+        case 0x90: return 6; // Note On
+        default:   return 7;
+        }
+    };
+
+    std::stable_sort(all.begin(), all.end(), [&](const MidiEvent& a, const MidiEvent& b) {
+        if (a.tick != b.tick) return a.tick < b.tick;
+        return eventPriority(a.status) < eventPriority(b.status);
     });
     return all;
 }

@@ -93,6 +93,8 @@ void D3DContext::Resize(uint32_t width, uint32_t height) {
     m_backBufferRTV.Reset();
     m_depthStencil.Reset();
     m_depthStencilTex.Reset();
+    m_sceneCopyTex.Reset();
+    m_sceneCopySRV.Reset();
 
     m_swapChain->ResizeBuffers(0, width, height, DXGI_FORMAT_UNKNOWN, 0);
 
@@ -134,6 +136,27 @@ void D3DContext::CreateDepthStencil(uint32_t w, uint32_t h) {
 
     m_device->CreateTexture2D(&desc, nullptr, m_depthStencilTex.GetAddressOf());
     m_device->CreateDepthStencilView(m_depthStencilTex.Get(), nullptr, m_depthStencil.GetAddressOf());
+}
+
+ID3D11ShaderResourceView* D3DContext::CaptureScreen() {
+    if (!m_sceneCopyTex) {
+        D3D11_TEXTURE2D_DESC desc{};
+        desc.Width = m_width;
+        desc.Height = m_height;
+        desc.MipLevels = 1;
+        desc.ArraySize = 1;
+        desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        desc.SampleDesc.Count = 1;
+        desc.Usage = D3D11_USAGE_DEFAULT;
+        desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+        m_device->CreateTexture2D(&desc, nullptr, m_sceneCopyTex.GetAddressOf());
+        m_device->CreateShaderResourceView(m_sceneCopyTex.Get(), nullptr, m_sceneCopySRV.GetAddressOf());
+    }
+
+    ComPtr<ID3D11Texture2D> backBuffer;
+    m_swapChain->GetBuffer(0, IID_PPV_ARGS(backBuffer.GetAddressOf()));
+    m_context->CopyResource(m_sceneCopyTex.Get(), backBuffer.Get());
+    return m_sceneCopySRV.Get();
 }
 
 } // namespace pfd

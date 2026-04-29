@@ -13,6 +13,8 @@ struct NoteInfo {
     double   onTime{};
     double   offTime{};
     bool     visualActive{};
+    uint64_t activeChannels{}; // Bitmask of channels currently playing this note
+    uint64_t sustainChannels{}; // Bitmask of channels holding this note via sustain pedal
 };
 
 struct ActiveVisualNote {
@@ -31,6 +33,10 @@ public:
     void NoteOn(int note, int velocity, int channel, double time);
     void NoteOff(int note, int channel, double time);
     void AllNotesOff(double time);
+
+    // Sustain pedal (CC #64): holds notes visually after key release
+    void SustainOn(int channel);
+    void SustainOff(int channel, double time);
 
     const NoteInfo& operator[](int note) const { return m_keyState[note]; }
     
@@ -54,6 +60,9 @@ private:
     std::vector<ActiveVisualNote> m_visualNotes;
     std::unordered_map<uint32_t, size_t> m_visualNoteIndex; // (note,channel) -> index in m_visualNotes
     std::vector<int> m_recentOns;
+
+    // Sustain pedal state per channel (bitmask of 64 channels)
+    uint64_t m_sustainActive{}; // bit set = sustain pedal down on that channel
 };
 
 } // namespace pfd

@@ -1,6 +1,7 @@
 #pragma once
 #include <chrono>
 
+namespace pfd {
 namespace util {
 
 class Timer {
@@ -10,23 +11,22 @@ public:
 
     Timer() : m_start(Clock::now()), m_last(Clock::now()) {}
 
-    // Returns seconds since last call to Delta()
+    // Returns raw frame delta (seconds). Clamped to avoid spiral-of-death on hitches.
     double Delta() {
         auto now = Clock::now();
         double dt = Duration(now - m_last).count();
         m_last = now;
-        // Clamp to avoid spiral of death on breakpoint/hitch
         return (dt > 0.1) ? 0.1 : dt;
     }
 
-    // Returns seconds since construction
+    // Returns seconds since last Reset(). Use this for absolute playback anchoring.
     double Elapsed() const {
         return Duration(Clock::now() - m_start).count();
     }
 
     void Reset() {
         m_start = Clock::now();
-        m_last = Clock::now();
+        m_last  = Clock::now();
     }
 
 private:
@@ -35,3 +35,4 @@ private:
 };
 
 } // namespace util
+} // namespace pfd

@@ -6,6 +6,10 @@
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int nCmdShow) {
     // Make the app DPI-aware so WM_SIZE reports physical pixels
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+    
+    // Initialize COM for WIC (texture loading) and file dialogs
+    CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
+
     pfd::GameLoop game;
 
     if (!game.Initialize(hInstance, nCmdShow)) {

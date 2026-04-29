@@ -85,30 +85,28 @@ void ParticleSystem::EmitBurst(float x, float y, util::Color color, int count) {
 void ParticleSystem::EmitContinuous(float x, float y, util::Color color) {
     if (m_activeCount >= MAX_PARTICLES) return;
     
-    std::uniform_real_distribution<float> distAngle(-1.8f, -1.35f);
-    std::uniform_real_distribution<float> distSpeed(50.0f, 170.0f);
-    std::uniform_real_distribution<float> distOffset(-6.0f, 6.0f);
-    std::uniform_real_distribution<float> distYOffset(-2.0f, 2.0f);
-    std::uniform_real_distribution<float> distGlowAdd(0.0f, 4.0f);
-    std::uniform_real_distribution<float> distSizeAdd(0.0f, 2.0f);
+    std::uniform_real_distribution<float> distAngle(-2.4f, -0.7f); // Much wider dispersion arc
+    std::uniform_real_distribution<float> distSpeed(150.0f, 450.0f); // Faster initial burst
+    std::uniform_real_distribution<float> distOffset(-12.0f, 12.0f); // Wider spawn area
+    std::uniform_real_distribution<float> distGlow(0.0f, 1.0f);
 
-    float life = m_emberMode ? 2.5f : 1.0f;
+    float life = 0.8f + distGlow(m_rng) * 0.4f;
     float angle = distAngle(m_rng);
     float speed = distSpeed(m_rng);
-    bool isGlow = std::uniform_real_distribution<float>(0, 1)(m_rng) < 0.3f;
+    bool isGlow = distGlow(m_rng) < 0.25f;
 
     auto& p = AllocateParticle();
     p.x = x + distOffset(m_rng);
-    p.y = y + distYOffset(m_rng);
+    p.y = y;
     p.vx = std::cosf(angle) * speed;
     p.vy = std::sinf(angle) * speed;
-    p.r = color.r;
-    p.g = color.g;
-    p.b = color.b;
-    p.a = color.a;
+    p.r = std::min(1.0f, color.r * 1.5f); 
+    p.g = std::min(1.0f, color.g * 1.5f);
+    p.b = std::min(1.0f, color.b * 1.5f);
+    p.a = 1.0f;
     p.life = life;
     p.maxLife = life;
-    p.size = isGlow ? (2.0f + distGlowAdd(m_rng)) : (1.0f + distSizeAdd(m_rng));
+    p.size = isGlow ? (4.0f + distGlow(m_rng) * 6.0f) : (1.5f + distGlow(m_rng) * 2.5f);
     p.flags = isGlow ? 1u : 0u;
 }
 
@@ -149,14 +147,21 @@ void ParticleSystem::Update(float dt) {
         auto& p = m_particles[i];
         if (!p.active) continue;
         
-        // Sway effect
-        p.vx += std::sinf(time * 3.0f + p.y * 0.01f) * 3.5f * dt * 10.0f;
+        // 1. Eddy Currents (Turbulent Swirls)
+        float swirlX = std::sinf(time * 4.0f + p.y * 0.05f) * 60.0f;
+        float swirlY = std::cosf(time * 3.0f + p.x * 0.05f) * 40.0f;
+        
+        p.vx += swirlX * dt;
+        p.vy += swirlY * dt;
+        
+        // 2. Upward Drift (instead of gravity)
+        p.vy -= 450.0f * dt; // Much stronger upward push
+        
         p.x  += p.vx * dt;
         p.y  += p.vy * dt;
-        p.vy += gravity * dt;
         
-        // Drag
-        float drag = (p.flags & 1) ? 0.97f : 0.99f;
+        // Drag (slightly less to let swirls build up)
+        float drag = (p.flags & 1) ? 0.94f : 0.96f;
         p.vx *= drag;
         p.vy *= drag;
         
@@ -171,7 +176,8 @@ void ParticleSystem::Update(float dt) {
 }
 
 void ParticleSystem::Draw(SpriteBatch& batch) {
-    // Only draw active particles
+    batch.SetBlendMode(true);
+    batch.SetTexture(m_texture);
     for (size_t i = 0; i < MAX_PARTICLES; ++i) {
         const auto& p = m_particles[i];
         if (!p.active) continue;
@@ -181,12 +187,26 @@ void ParticleSystem::Draw(SpriteBatch& batch) {
         float sz = p.size;
         if (p.flags & 1) sz *= (0.5f + 0.5f * lifeRatio); // glow shrinks
         
+        // 1. Core Particle
         batch.Draw(
             {p.x - sz * 0.5f, p.y - sz * 0.5f},
             {sz, sz},
             {p.r, p.g, p.b, alpha}
         );
+
+        // 2. Bloom Aura (disappears faster than the core)
+        float bloomSz = sz * 3.5f;
+        float bloomAlpha = alpha * 0.35f * std::pow(lifeRatio, 1.5f);
+        if (bloomAlpha > 0.01f) {
+            batch.Draw(
+                {p.x - bloomSz * 0.5f, p.y - bloomSz * 0.5f},
+                {bloomSz, bloomSz},
+                {p.r, p.g, p.b, bloomAlpha}
+            );
+        }
     }
+    batch.SetTexture(nullptr);
+    batch.SetBlendMode(false);
 }
 
 } // namespace pfd

@@ -26,8 +26,13 @@ public:
     uint32_t                Width()         const { return m_width; }
     uint32_t                Height()        const { return m_height; }
 
+    ID3D11ShaderResourceView* CaptureScreen();
+
 private:
     void CreateDepthStencil(uint32_t w, uint32_t h);
+    
+    ComPtr<ID3D11Texture2D>          m_sceneCopyTex;
+    ComPtr<ID3D11ShaderResourceView> m_sceneCopySRV;
 
     ComPtr<ID3D11Device>           m_device;
     ComPtr<ID3D11DeviceContext>     m_context;

@@ -52,7 +52,7 @@ void Input::OnKey(int vkCode, bool down) {
 
     int note = KeyToMidiNote(vkCode);
     if (note >= 0) {
-        m_events.push_back({note, down});
+        PushEvent(note, down);
     }
 }
 

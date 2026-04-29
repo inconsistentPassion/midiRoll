@@ -10,6 +10,7 @@ namespace pfd {
 static GameLoop* s_gameLoop = nullptr;
 
 bool GameLoop::Initialize(HINSTANCE hInstance, int nCmdShow) {
+    (void)hInstance;
     s_gameLoop = this;
 
     if (!m_window.Create(1280, 720, L"midiRoll")) {
@@ -40,6 +41,9 @@ bool GameLoop::Initialize(HINSTANCE hInstance, int nCmdShow) {
     m_audio.Initialize();
     TryAutoLoadSoundFont();
 
+    // Open first available MIDI input device (silently skip if none present)
+    m_midiInput.Open(0);
+
     // Build shared context
     m_ctx.window      = &m_window;
     m_ctx.d3d         = &m_d3d;
@@ -50,6 +54,7 @@ bool GameLoop::Initialize(HINSTANCE hInstance, int nCmdShow) {
     m_ctx.audio       = &m_audio;
     m_ctx.midi        = &m_midi;
     m_ctx.input       = &m_input;
+    m_ctx.midiInput   = &m_midiInput;
     m_ctx.timer       = &m_timer;
 
     // Register states
@@ -68,14 +73,32 @@ bool GameLoop::Initialize(HINSTANCE hInstance, int nCmdShow) {
 void GameLoop::Run() {
     while (!m_window.ShouldClose()) {
         m_window.PumpMessages();
+
         double dt = m_timer.Delta();
+
+        // Auto-reconnect: if a device was selected but is no longer open, retry
+        PollMidiReconnect(dt);
+
         m_states.Update(m_ctx, dt);
         m_states.Render(m_ctx);
         m_d3d.Present(true);
     }
 }
 
+void GameLoop::PollMidiReconnect(double dt) {
+    // Only try to reconnect if a device index was previously chosen
+    if (m_midiInput.IsOpen() || m_midiInput.DeviceIndex() < 0)
+        return;
+
+    m_midiReconnectTimer += dt;
+    if (m_midiReconnectTimer >= 2.0) {
+        m_midiReconnectTimer = 0.0;
+        m_midiInput.Reopen(); // silently succeeds or fails
+    }
+}
+
 void GameLoop::Shutdown() {
+    m_midiInput.Close();
     m_audio.Shutdown();
 }
 
@@ -86,8 +109,11 @@ void GameLoop::OnResize(int width, int height) {
 }
 
 void GameLoop::OnKey(int key, bool down) {
-    if (m_states.OnKey(m_ctx, key, down)) return;
+    // Always process keyboard input for piano playing first
     m_input.OnKey(key, down);
+    
+    // Then let the active state handle special control keys
+    if (m_states.OnKey(m_ctx, key, down)) return;
 }
 
 void GameLoop::OnMouse(int x, int y, bool down, bool move) {

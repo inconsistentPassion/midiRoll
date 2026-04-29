@@ -44,12 +44,13 @@ bool FontRenderer::BuildAtlas(const unsigned char* ttfData) {
     stbtt_GetFontVMetrics(&font, &ascent, &descent, &lineGap);
     m_lineHeight = (ascent - descent + lineGap) * scale;
 
-    m_atlasW = 2048;
-    m_atlasH = 512;
+    // Larger atlas for sharper text
+    m_atlasW = 4096;
+    m_atlasH = 1024;
     std::vector<unsigned char> bitmap(m_atlasW * m_atlasH, 0);
 
-    int penX = 1;
-    int baseline = (int)(ascent * scale) + 2;
+    int penX = 2;
+    int baseline = (int)(ascent * scale) + 3;
 
     for (int ch = 32; ch < 127; ch++) {
         int glyphIdx = stbtt_FindGlyphIndex(&font, ch);
@@ -61,7 +62,7 @@ bool FontRenderer::BuildAtlas(const unsigned char* ttfData) {
         int gw = x1 - x0;
         int gh = y1 - y0;
 
-        if (penX + gw + 1 >= m_atlasW) { penX = 1; }
+        if (penX + gw + 2 >= m_atlasW) { penX = 2; }
 
         if (gw > 0 && gh > 0) {
             std::vector<unsigned char> glyph(gw * gh);
@@ -88,7 +89,7 @@ bool FontRenderer::BuildAtlas(const unsigned char* ttfData) {
         gi.advance = (int)(ax * scale);
         m_glyphs[ch] = gi;
 
-        penX += gw + 2;
+        penX += gw + 3;
     }
 
     D3D11_TEXTURE2D_DESC desc{};

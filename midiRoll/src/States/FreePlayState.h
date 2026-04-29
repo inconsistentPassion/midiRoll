@@ -1,6 +1,8 @@
 #pragma once
 #include "AppState.h"
 #include "PauseMenu.h"
+#include <wrl/client.h>
+#include <d3d11.h>
 
 namespace pfd {
 
@@ -20,6 +22,7 @@ private:
     std::array<bool, 128> m_mouseNotes{};
     PauseMenu  m_pause;
     bool       m_showHUD{true};
+    Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> m_backgroundTex;
 };
 
 } // namespace pfd

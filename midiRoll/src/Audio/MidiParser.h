@@ -22,6 +22,7 @@ struct MidiEvent {
     uint8_t  data2;     // velocity / value
     bool     isNoteOn;
     bool     isNoteOff;
+    uint8_t  globalChannel; // 0-63 (Port * 16 + Channel)
 };
 
 struct MidiTrack {

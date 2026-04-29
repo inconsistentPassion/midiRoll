@@ -7,6 +7,7 @@ void NoteState::NoteOn(int note, int velocity, int channel, double time) {
     if (note < 0 || note >= NOTE_COUNT) return;
 
     // Update key state (for piano rendering)
+    m_keyState[note].activeChannels |= (1ULL << (channel % 64));
     m_keyState[note].active = true;
     m_keyState[note].velocity = (uint8_t)velocity;
     m_keyState[note].channel = (uint8_t)channel;
@@ -35,13 +36,11 @@ void NoteState::NoteOn(int note, int velocity, int channel, double time) {
 void NoteState::NoteOff(int note, int channel, double time) {
     if (note < 0 || note >= NOTE_COUNT) return;
 
-    // Update key state
-    if (m_keyState[note].channel == channel) {
-        m_keyState[note].active = false;
-        m_keyState[note].offTime = time;
-    }
+    int ch = channel % 64;
+    bool sustainDown = (m_sustainActive >> ch) & 1;
 
-    // O(1) lookup using hash map instead of linear search
+    // Always end the visual note bar at key-release time.
+    // Sustain pedal only keeps the piano key lit — it does NOT extend the note bar.
     uint32_t key = MakeNoteKey(note, channel);
     auto it = m_visualNoteIndex.find(key);
     if (it != m_visualNoteIndex.end()) {
@@ -50,13 +49,62 @@ void NoteState::NoteOff(int note, int channel, double time) {
             m_visualNotes[index].active = false;
             m_visualNotes[index].offTime = time;
         }
-        // Don't erase from map - we'll clean up in UpdateVisualNotes
+    }
+
+    if (sustainDown) {
+        // Key physically released but sustain pedal holds the audio/key highlight.
+        m_keyState[note].sustainChannels |= (1ULL << ch);
+        return;
+    }
+
+    // Update key state
+    m_keyState[note].activeChannels &= ~(1ULL << ch);
+    m_keyState[note].sustainChannels &= ~(1ULL << ch);
+    if (m_keyState[note].activeChannels == 0 && m_keyState[note].sustainChannels == 0) {
+        m_keyState[note].active = false;
+        m_keyState[note].offTime = time;
+    }
+}
+
+void NoteState::SustainOn(int channel) {
+    int ch = channel % 64;
+    m_sustainActive |= (1ULL << ch);
+}
+
+void NoteState::SustainOff(int channel, double time) {
+    int ch = channel % 64;
+    m_sustainActive &= ~(1ULL << ch);
+
+    // Release all notes that were being held by sustain on this channel
+    for (int note = 0; note < NOTE_COUNT; note++) {
+        if (!((m_keyState[note].sustainChannels >> ch) & 1)) continue;
+
+        m_keyState[note].sustainChannels &= ~(1ULL << ch);
+        m_keyState[note].activeChannels  &= ~(1ULL << ch);
+
+        if (m_keyState[note].activeChannels == 0 && m_keyState[note].sustainChannels == 0) {
+            m_keyState[note].active = false;
+            m_keyState[note].offTime = time;
+        }
+
+        uint32_t key = MakeNoteKey(note, channel);
+        auto it = m_visualNoteIndex.find(key);
+        if (it != m_visualNoteIndex.end()) {
+            size_t index = it->second;
+            if (index < m_visualNotes.size() && m_visualNotes[index].active) {
+                m_visualNotes[index].active = false;
+                m_visualNotes[index].offTime = time;
+            }
+        }
     }
 }
 
 void NoteState::AllNotesOff(double time) {
+    m_sustainActive = 0;
     for (int i = 0; i < NOTE_COUNT; i++) {
         m_keyState[i].active = false;
+        m_keyState[i].activeChannels = 0;
+        m_keyState[i].sustainChannels = 0;
         m_keyState[i].offTime = time;
     }
     for (auto& vn : m_visualNotes) {

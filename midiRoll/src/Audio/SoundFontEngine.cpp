@@ -9,6 +9,7 @@ bool SoundFontEngine::Initialize() {
     m_settings = new_fluid_settings();
     if (!m_settings) return false;
     fluid_settings_setstr(m_settings, "audio.driver", "wasapi");
+    fluid_settings_setint(m_settings, "synth.midi-channels", 64);
     fluid_settings_setint(m_settings, "audio.period-size", 512);
     m_synth = new_fluid_synth(m_settings);
     if (!m_synth) { delete_fluid_settings(m_settings); m_settings = nullptr; return false; }

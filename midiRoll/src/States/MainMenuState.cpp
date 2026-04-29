@@ -1,10 +1,62 @@
 #include "MainMenuState.h"
+#include "StateHelpers.h"
+#include "../Input/MidiInput.h"
 #include <algorithm>
 #include <cmath>
 #include <Windows.h>
 #include <commdlg.h>
 
 namespace pfd {
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+std::string MainMenuState::BuildMidiLabel(int deviceIndex) const {
+    int count = MidiInput::DeviceCount();
+    if (count == 0 || deviceIndex < 0) return "MIDI: none";
+
+    MIDIINCAPSW caps{};
+    if (midiInGetDevCapsW(static_cast<UINT>(deviceIndex), &caps, sizeof(caps)) != MMSYSERR_NOERROR)
+        return "MIDI: device " + std::to_string(deviceIndex + 1);
+
+    int len = WideCharToMultiByte(CP_UTF8, 0, caps.szPname, -1, nullptr, 0, nullptr, nullptr);
+    std::string name;
+    if (len > 0) { name.resize(len - 1); WideCharToMultiByte(CP_UTF8, 0, caps.szPname, -1, name.data(), len, nullptr, nullptr); }
+
+    return "MIDI: " + name + " [" + std::to_string(deviceIndex + 1) + "/" + std::to_string(count) + "]";
+}
+
+void MainMenuState::CycleMidiDevice(Context& ctx) {
+    int count = MidiInput::DeviceCount();
+    if (count == 0) {
+        m_midiDeviceIndex = -1;
+        ctx.midiInput->Close();
+        m_items[3].label = "MIDI: none";
+        return;
+    }
+    
+    // Cycle: -1 -> 0 -> 1 -> ... -> count-1 -> -1
+    m_midiDeviceIndex = (m_midiDeviceIndex + 2) % (count + 1) - 1;
+    
+    if (m_midiDeviceIndex < 0) {
+        ctx.midiInput->Close();
+        m_items[3].label = "MIDI: none";
+    } else {
+        bool ok = ctx.midiInput->Open(m_midiDeviceIndex);
+        if (ok) {
+            m_items[3].label = BuildMidiLabel(m_midiDeviceIndex);
+        } else {
+            // Device listed but couldn't open — skip to next
+            // Recursively try the next device
+            CycleMidiDevice(ctx);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// State lifecycle
+// ---------------------------------------------------------------------------
 
 void MainMenuState::Enter(Context& ctx) {
     m_selected = 0;
@@ -15,6 +67,15 @@ void MainMenuState::Enter(Context& ctx) {
     m_enterAnim = 1.0f;
     ctx.audio->AllNotesOff();
     ctx.input->ClearEvents();
+
+    // Sync MIDI button label with whatever device is currently open
+    if (ctx.midiInput && ctx.midiInput->IsOpen()) {
+        m_midiDeviceIndex = ctx.midiInput->DeviceIndex();
+        m_items[3].label = BuildMidiLabel(m_midiDeviceIndex);
+    } else {
+        m_midiDeviceIndex = -1;
+        m_items[3].label = "MIDI: none";
+    }
 }
 
 void MainMenuState::Exit(Context& ctx) {
@@ -51,6 +112,10 @@ Transition MainMenuState::Update(Context& ctx, double dt) {
 
     return {};
 }
+
+// ---------------------------------------------------------------------------
+// Rendering
+// ---------------------------------------------------------------------------
 
 void MainMenuState::Render(Context& ctx) {
     auto& batch = *ctx.spriteBatch;
@@ -120,8 +185,8 @@ void MainMenuState::DrawTitle(Context& ctx) {
 
     // Subtitle
     const char* sub = "A MIDI Piano Visualizer";
-    float sw = font.GetTextWidth(sub, 0.7f);
-    font.DrawText(batch, sub, (vw - sw) * 0.5f, titleY + 55, 0.4f, 0.4f, 0.5f, 0.7f);
+    float sw = font.GetTextWidth(sub, 0.85f);
+    font.DrawText(batch, sub, (vw - sw) * 0.5f, titleY + 58, 0.55f, 0.55f, 0.65f, 0.85f);
 }
 
 void MainMenuState::DrawButtons(Context& ctx) {
@@ -174,13 +239,13 @@ void MainMenuState::DrawButtons(Context& ctx) {
         }
 
         // Label
-        float labelW = font.GetTextWidth(m_items[i].label, 0.85f);
+        float labelW = font.GetTextWidth(m_items[i].label, 0.95f);
         float lx = x + (btnW - labelW) * 0.5f;
-        float ly = y + (btnH - 20) * 0.5f;
+        float ly = y + (btnH - 22) * 0.5f;
         util::Color c = m_items[i].color;
-        float bright = isSel ? 1.0f : (0.7f + h * 0.3f);
+        float bright = isSel ? 1.0f : (0.75f + h * 0.25f);
         font.DrawText(batch, m_items[i].label, lx, ly,
-                      c.r * bright, c.g * bright, c.b * bright, 0.85f);
+                      c.r * bright, c.g * bright, c.b * bright, 0.95f);
     }
 }
 
@@ -190,9 +255,9 @@ void MainMenuState::DrawHint(Context& ctx) {
     int vw = ctx.window->Width();
     int vh = ctx.window->Height();
 
-    const char* hint = "Arrow keys to navigate  |  Enter to select";
-    float hw = font.GetTextWidth(hint, 0.55f);
-    font.DrawText(batch, hint, (vw - hw) * 0.5f, vh - 40.0f, 0.3f, 0.3f, 0.4f, 0.55f);
+    const char* hint = "Arrow keys / mouse to navigate  |  Enter to select";
+    float hw = font.GetTextWidth(hint, 0.72f);
+    font.DrawText(batch, hint, (vw - hw) * 0.5f, vh - 40.0f, 0.55f, 0.55f, 0.65f, 0.72f);
 }
 
 void MainMenuState::SpawnBackgroundNote(Context& ctx) {
@@ -201,6 +266,7 @@ void MainMenuState::SpawnBackgroundNote(Context& ctx) {
     std::uniform_real_distribution<float> distSpeed(40.0f, 120.0f);
     std::uniform_real_distribution<float> distW(8.0f, 20.0f);
     std::uniform_real_distribution<float> distH(20.0f, 60.0f);
+    std::uniform_real_distribution<float> distAlpha(0.4f, 0.8f);
 
     FallingNote n;
     n.x = distX(m_rng);
@@ -209,64 +275,57 @@ void MainMenuState::SpawnBackgroundNote(Context& ctx) {
     n.width = distW(m_rng);
     n.height = distH(m_rng);
     n.color = util::ChannelColor(std::uniform_int_distribution<int>(0, 15)(m_rng));
-    n.alpha = 0.6f;
+    n.alpha = distAlpha(m_rng);
+    
+    // Occasionally spawn wider "chord" notes for visual variety
+    if (std::uniform_real_distribution<float>(0, 1)(m_rng) < 0.15f) {
+        n.width *= 2.5f;
+        n.height *= 1.5f;
+        n.alpha *= 0.7f;
+    }
+    
     m_bgNotes.push_back(n);
 
     // Cap count
     if (m_bgNotes.size() > 80) m_bgNotes.erase(m_bgNotes.begin());
 }
 
+// ---------------------------------------------------------------------------
+// Input - shared action handler
+// ---------------------------------------------------------------------------
+
 Transition MainMenuState::OnKey(Context& ctx, int key, bool down) {
-    (void)ctx;
     if (!down) return {};
 
     int count = (int)m_items.size();
 
     if (key == VK_UP) {
         m_selected = (m_selected - 1 + count) % count;
+        // TODO: Play subtle hover sound effect here
         return Transition::Handled();
     }
     if (key == VK_DOWN) {
         m_selected = (m_selected + 1) % count;
+        // TODO: Play subtle hover sound effect here
         return Transition::Handled();
     }
     if (key == VK_RETURN || key == VK_SPACE) {
-        const std::string& label = m_items[m_selected].label;
-        if (label == "SOUNDFONT") {
-            wchar_t filePath[MAX_PATH] = {};
-            OPENFILENAMEW ofn{};
-            ofn.lStructSize = sizeof(ofn);
-            ofn.hwndOwner = ctx.window->Handle();
-            ofn.lpstrFilter = L"SoundFont Files (*.sf2)\0*.sf2\0All Files (*.*)\0*.*\0";
-            ofn.lpstrFile = filePath;
-            ofn.nMaxFile = MAX_PATH;
-            ofn.lpstrTitle = L"Open SoundFont File";
-            ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
-            if (GetOpenFileNameW(&ofn)) {
-                int nlen = WideCharToMultiByte(CP_UTF8, 0, filePath, -1, nullptr, 0, nullptr, nullptr);
-                std::string narrow(nlen - 1, '\0');
-                WideCharToMultiByte(CP_UTF8, 0, filePath, -1, narrow.data(), nlen, nullptr, nullptr);
-                ctx.audio->LoadSoundFont(narrow);
-                ctx.soundFontPath = narrow;
-            }
-            return Transition::Handled();
+        // TODO: Play select sound effect here
+        switch (m_items[m_selected].action) {
+        case MenuAction::FreePlay:    return {StateID::FreePlay,     true, true};
+        case MenuAction::MidiPlayback:return {StateID::MidiPlayback, true, true};
+        case MenuAction::SoundFont:   OpenSoundFontDialog(ctx); return Transition::Handled();
+        case MenuAction::MidiDevice:  CycleMidiDevice(ctx); return Transition::Handled();
+        case MenuAction::Quit:        ctx.window->RequestClose(); return Transition::Handled();
+        default: break;
         }
-        if (label == "QUIT") {
-            ctx.window->RequestClose();
-            return Transition::Handled();
-        }
-        return {m_items[m_selected].target, true, true};
     }
-    if (key == VK_ESCAPE) {
-        // Do nothing - ESC goes back to menu only
-        return Transition::Handled();
-    }
+    if (key == VK_ESCAPE) return Transition::Handled();
 
     return {};
 }
 
 Transition MainMenuState::OnMouse(Context& ctx, int x, int y, bool down, bool move) {
-    (void)ctx;
     int vw = ctx.window->Width();
     int vh = ctx.window->Height();
 
@@ -286,31 +345,14 @@ Transition MainMenuState::OnMouse(Context& ctx, int x, int y, bool down, bool mo
     }
 
     if (down && m_hovered >= 0) {
-        const std::string& label = m_items[m_hovered].label;
-        if (label == "SOUNDFONT") {
-            wchar_t filePath[MAX_PATH] = {};
-            OPENFILENAMEW ofn{};
-            ofn.lStructSize = sizeof(ofn);
-            ofn.hwndOwner = ctx.window->Handle();
-            ofn.lpstrFilter = L"SoundFont Files (*.sf2)\0*.sf2\0All Files (*.*)\0*.*\0";
-            ofn.lpstrFile = filePath;
-            ofn.nMaxFile = MAX_PATH;
-            ofn.lpstrTitle = L"Open SoundFont File";
-            ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
-            if (GetOpenFileNameW(&ofn)) {
-                int nlen = WideCharToMultiByte(CP_UTF8, 0, filePath, -1, nullptr, 0, nullptr, nullptr);
-                std::string narrow(nlen - 1, '\0');
-                WideCharToMultiByte(CP_UTF8, 0, filePath, -1, narrow.data(), nlen, nullptr, nullptr);
-                ctx.audio->LoadSoundFont(narrow);
-                ctx.soundFontPath = narrow;
-            }
-            return Transition::Handled();
+        switch (m_items[m_hovered].action) {
+        case MenuAction::FreePlay:    return {StateID::FreePlay,     true, true};
+        case MenuAction::MidiPlayback:return {StateID::MidiPlayback, true, true};
+        case MenuAction::SoundFont:   OpenSoundFontDialog(ctx); return Transition::Handled();
+        case MenuAction::MidiDevice:  CycleMidiDevice(ctx); return Transition::Handled();
+        case MenuAction::Quit:        ctx.window->RequestClose(); return Transition::Handled();
+        default: break;
         }
-        if (label == "QUIT") {
-            ctx.window->RequestClose();
-            return Transition::Handled();
-        }
-        return {m_items[m_hovered].target, true, true};
     }
 
     return {};

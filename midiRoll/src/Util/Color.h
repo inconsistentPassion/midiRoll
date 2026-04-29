@@ -3,6 +3,7 @@
 #include <cmath>
 #include <algorithm>
 
+namespace pfd {
 namespace util {
 
 struct Color {
@@ -66,3 +67,4 @@ inline Color ChannelColor(int ch) {
 }
 
 } // namespace util
+} // namespace pfd

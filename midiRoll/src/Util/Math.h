@@ -2,6 +2,7 @@
 #include <cmath>
 #include <algorithm>
 
+namespace pfd {
 namespace util {
 
 constexpr float PI  = 3.14159265358979323846f;
@@ -46,3 +47,4 @@ inline float Smoothstep(float edge0, float edge1, float x) {
 }
 
 } // namespace util
+} // namespace pfd

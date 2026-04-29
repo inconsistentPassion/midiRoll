@@ -17,9 +17,11 @@ public:
     Transition OnMouse(Context& ctx, int x, int y, bool down, bool move) override;
 
 private:
+    enum class MenuAction { None, FreePlay, MidiPlayback, SoundFont, MidiDevice, Quit };
+
     struct MenuItem {
-        const char* label;
-        StateID     target;
+        std::string label;
+        MenuAction  action;
         util::Color color;
         float       hoverAnim{}; // 0..1
     };
@@ -39,15 +41,23 @@ private:
     void DrawHint(Context& ctx);
     void SpawnBackgroundNote(Context& ctx);
 
+    // Returns a label like "MIDI: Piano [1/2]" or "MIDI: none"
+    std::string BuildMidiLabel(int deviceIndex) const;
+
+    // Cycles to next MIDI device and opens it; updates the button label
+    void CycleMidiDevice(Context& ctx);
+
     std::vector<MenuItem> m_items{{
-        {"FREE PLAY",      StateID::FreePlay,      {0.3f, 0.8f, 1.0f, 1.0f}},
-        {"MIDI PLAYBACK",  StateID::MidiPlayback,  {1.0f, 0.6f, 0.2f, 1.0f}},
-        {"SOUNDFONT",      StateID::MainMenu,      {0.8f, 0.7f, 0.4f, 1.0f}},
-        {"QUIT",           StateID::MainMenu,      {0.6f, 0.3f, 0.3f, 1.0f}},
+        {"FREE PLAY",      MenuAction::FreePlay,     {0.3f, 0.8f, 1.0f, 1.0f}},
+        {"MIDI PLAYBACK",  MenuAction::MidiPlayback, {1.0f, 0.6f, 0.2f, 1.0f}},
+        {"SOUNDFONT",      MenuAction::SoundFont,    {0.8f, 0.7f, 0.4f, 1.0f}},
+        {"MIDI: none",     MenuAction::MidiDevice,   {0.3f, 0.8f, 0.8f, 1.0f}},
+        {"QUIT",           MenuAction::Quit,         {0.6f, 0.3f, 0.3f, 1.0f}},
     }};
 
     int m_selected{};
     int m_hovered{-1};
+    int m_midiDeviceIndex{-1}; // currently selected device (-1 = none)
     std::vector<FallingNote> m_bgNotes;
     std::mt19937 m_rng{std::random_device{}()};
     float m_spawnTimer{};

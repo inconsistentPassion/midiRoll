@@ -66,10 +66,11 @@ private:
     float m_blackKeyW{};
     float m_gap = 1.0f;
 
-    std::array<util::Color, 16> m_channelColors{};
+    std::array<util::Color, 64> m_channelColors{};
     std::vector<ImpactFlash> m_impacts;
     ComPtr<ID3D11ShaderResourceView> m_noteTex;
     ComPtr<ID3D11ShaderResourceView> m_gradientTex;
+    ComPtr<ID3D11ShaderResourceView> m_glowTex;
     void CreateTextures(ID3D11Device* device);
 };
 

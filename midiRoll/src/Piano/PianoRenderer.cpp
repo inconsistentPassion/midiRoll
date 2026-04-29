@@ -11,18 +11,44 @@ bool PianoRenderer::Initialize(ID3D11Device* device, uint32_t viewW, uint32_t vi
     
     if (!particles.Initialize(device)) return false;
 
-    // Initialize channel colors
-    m_channelColors[0] = {0.2f, 0.5f, 1.0f, 1.0f}; // Blue
-    m_channelColors[1] = {1.0f, 0.4f, 0.1f, 1.0f}; // Orange
-    m_channelColors[2] = {0.1f, 0.8f, 0.2f, 1.0f}; // Green
-    m_channelColors[3] = {0.8f, 0.1f, 0.8f, 1.0f}; // Purple
-    m_channelColors[4] = {1.0f, 0.8f, 0.0f, 1.0f}; // Yellow
-    m_channelColors[9] = {0.5f, 0.5f, 0.5f, 1.0f}; // Drums (Grey)
-    for (int i = 0; i < 16; i++) {
-        if (m_channelColors[i].a == 0) m_channelColors[i] = {0.5f, 0.7f, 1.0f, 1.0f};
+    // Initialize channel colors (Vibrant, high-luminance palette for dark backgrounds)
+    m_channelColors[0]  = {0.1f, 0.6f, 1.0f, 1.0f}; // Azure Blue
+    m_channelColors[1]  = {1.0f, 0.4f, 0.0f, 1.0f}; // Safety Orange
+    m_channelColors[2]  = {0.2f, 1.0f, 0.4f, 1.0f}; // Spring Green
+    m_channelColors[3]  = {1.0f, 0.2f, 0.6f, 1.0f}; // Deep Pink
+    m_channelColors[4]  = {1.0f, 0.9f, 0.0f, 1.0f}; // Electric Yellow
+    m_channelColors[5]  = {0.0f, 1.0f, 1.0f, 1.0f}; // Cyan
+    m_channelColors[6]  = {1.0f, 0.3f, 0.3f, 1.0f}; // Coral Red
+    m_channelColors[7]  = {0.7f, 0.4f, 1.0f, 1.0f}; // Orchid Purple
+    m_channelColors[8]  = {0.6f, 1.0f, 0.2f, 1.0f}; // Lime
+    m_channelColors[9]  = {0.8f, 0.8f, 0.9f, 1.0f}; // Drums (Bright Silver)
+    m_channelColors[10] = {0.2f, 1.0f, 0.7f, 1.0f}; // Mint
+    m_channelColors[11] = {1.0f, 0.7f, 0.2f, 1.0f}; // Goldenrod
+    m_channelColors[12] = {0.5f, 0.8f, 1.0f, 1.0f}; // Sky Blue
+    m_channelColors[13] = {0.9f, 0.6f, 1.0f, 1.0f}; // Lavender
+    m_channelColors[14] = {1.0f, 0.6f, 0.6f, 1.0f}; // Salmon
+    m_channelColors[15] = {1.0f, 1.0f, 1.0f, 1.0f}; // User Input (White / Neon)
+
+    // Generate remaining colors (16-63) using golden ratio for distinct hues
+    for (int i = 16; i < 64; i++) {
+        float h = std::fmod((float)i * 0.618033988749895f, 1.0f);
+        // Simple HSL to RGB (Saturation 0.8, Lightness 0.6)
+        auto hueToRgb = [](float t) {
+            t = std::fmod(t, 1.0f);
+            if (t < 1.0f/6.0f) return 6.0f * t;
+            if (t < 1.0f/2.0f) return 1.0f;
+            if (t < 2.0f/3.0f) return (2.0f/3.0f - t) * 6.0f;
+            return 0.0f;
+        };
+        m_channelColors[i] = { hueToRgb(h + 1.0f/3.0f), hueToRgb(h), hueToRgb(h - 1.0f/3.0f), 1.0f };
+        // Boost brightness
+        m_channelColors[i].r = 0.3f + m_channelColors[i].r * 0.7f;
+        m_channelColors[i].g = 0.3f + m_channelColors[i].g * 0.7f;
+        m_channelColors[i].b = 0.3f + m_channelColors[i].b * 0.7f;
     }
 
     CreateTextures(device);
+    particles.SetTexture(m_glowTex.Get());
 
     ComputeKeyLayout();
     return true;
@@ -155,16 +181,41 @@ void PianoRenderer::CreateTextures(ID3D11Device* device) {
     if (SUCCEEDED(device->CreateTexture2D(&desc, &initData, gradTex.GetAddressOf()))) {
         device->CreateShaderResourceView(gradTex.Get(), nullptr, m_gradientTex.GetAddressOf());
     }
+
+    // 3. Radial Glow Texture
+    std::vector<uint32_t> glowPixels(64 * 64);
+    for (int y = 0; y < 64; y++) {
+        for (int x = 0; x < 64; x++) {
+            float dx = (x - 31.5f) / 31.5f;
+            float dy = (y - 31.5f) / 31.5f;
+            float dist = std::sqrt(dx * dx + dy * dy);
+            float alpha = std::max(0.0f, 1.0f - dist);
+            alpha = std::pow(alpha, 2.0f); // Softer falloff
+            uint8_t a = (uint8_t)(alpha * 255.0f);
+            glowPixels[y * 64 + x] = (255 << 24) | (a << 16) | (a << 8) | a;
+        }
+    }
+    desc.Width = 64;
+    desc.Height = 64;
+    initData.pSysMem = glowPixels.data();
+    initData.SysMemPitch = 64 * 4;
+    ComPtr<ID3D11Texture2D> glowTex;
+    if (SUCCEEDED(device->CreateTexture2D(&desc, &initData, glowTex.GetAddressOf()))) {
+        device->CreateShaderResourceView(glowTex.Get(), nullptr, m_glowTex.GetAddressOf());
+    }
 }
 
 void PianoRenderer::Render(SpriteBatch& batch, const NoteState& state, const std::vector<Note>& midiNotes, float liveTime, float midiPlaybackTime, float dt) {
     (void)dt;
-    DrawImpactFlashes(batch, liveTime);
-    DrawAtmosphere(batch, state);
-    
-    batch.Draw({0, m_pianoY - 5}, {(float)m_viewW, m_pianoHeight + 10}, {0.05f, 0.05f, 0.05f, 1.0f});
 
-    // Use rounded texture for notes
+    // 1. Background Atmosphere (Bottom-most layer)
+    DrawAtmosphere(batch, state);
+
+    // 2. Floor / Mirror Surface (Optional - can add a separate method or draw here)
+    // Darker base for the piano area
+    batch.Draw({0, m_pianoY}, {(float)m_viewW, (float)m_viewH - m_pianoY}, {0.03f, 0.03f, 0.05f, 1.0f});
+
+    // 3. Waterfall Notes
     batch.SetTexture(m_noteTex.Get());
 
     // Helper to draw a 3-slice rounded note so corners don't stretch vertically
@@ -208,7 +259,7 @@ void PianoRenderer::Render(SpriteBatch& batch, const NoteState& state, const std
         }
 
         if (std::abs(yE - yS) > 1.0f) {
-            util::Color c = m_channelColors[note.channel % 16];
+            util::Color c = m_channelColors[note.channel % 64];
             drawRoundedNote(noteX, std::min(yS, yE), noteW, std::abs(yE - yS), c);
         }
     }
@@ -242,9 +293,10 @@ void PianoRenderer::Render(SpriteBatch& batch, const NoteState& state, const std
                 if (yB < 0) continue;
             }
         }
-        util::Color c = m_channelColors[vn.channel % 16];
+        util::Color c = m_channelColors[vn.channel % 64];
         drawRoundedNote(noteX, std::min(yT, yB), noteW, std::abs(yB - yT), c);
         
+
         // Emit particle trails from the trailing edge
         if (vn.active) {
             float tailY = m_falling ? yT : yB;
@@ -261,16 +313,38 @@ void PianoRenderer::Render(SpriteBatch& batch, const NoteState& state, const std
 }
 
 void PianoRenderer::DrawPiano(SpriteBatch& batch, const NoteState& state, float currentTime) {
-    // White keys base
+    // White keys base — darken pressed keys so the color glow reads clearly
     for (int n = NoteState::FIRST_KEY; n <= NoteState::LAST_KEY; n++) {
         if (m_keys[n].isBlack) continue;
         float x = m_keys[n].x + 1;
         float w = m_keys[n].width - 2;
-        batch.Draw({x, m_pianoY}, {w, m_pianoHeight}, {0.95f, 0.95f, 0.95f, 1.0f});
+        bool active = state[n].active;
+        // Pressed: draw a dark tinted base so the colour overlay pops (like a black key)
+        util::Vec4 base = active ? util::Vec4{0.62f, 0.60f, 0.58f, 1.0f}
+                                 : util::Vec4{0.95f, 0.95f, 0.95f, 1.0f};
+        batch.Draw({x, m_pianoY}, {w, m_pianoHeight}, base);
         batch.Draw({x, m_pianoY + m_pianoHeight - 4}, {w, 4}, {0, 0, 0, 0.15f});
     }
 
-    // Black keys base
+    // White key highlights (gradient glow — same style as black keys)
+    batch.SetBlendMode(true); 
+    batch.SetTexture(m_gradientTex.Get());
+    for (int n = NoteState::FIRST_KEY; n <= NoteState::LAST_KEY; n++) {
+        if (m_keys[n].isBlack) continue;
+        auto& info = state[n];
+        if (info.active) {
+            float elapsed = currentTime - (float)info.onTime;
+            float flash = std::max(0.0f, 1.0f - elapsed * 4.0f);
+            float x = m_keys[n].x + 1;
+            float w = m_keys[n].width - 2;
+            util::Color c = m_channelColors[info.channel % 64];
+            batch.Draw({x, m_pianoY}, {w, m_pianoHeight}, {c.r, c.g, c.b, 0.4f + flash * 0.6f});
+        }
+    }
+
+    // 4. Black keys base
+    batch.SetBlendMode(false);
+    batch.SetTexture(nullptr);
     for (int n = NoteState::FIRST_KEY; n <= NoteState::LAST_KEY; n++) {
         if (!m_keys[n].isBlack) continue;
         float x = m_keys[n].x;
@@ -280,21 +354,20 @@ void PianoRenderer::DrawPiano(SpriteBatch& batch, const NoteState& state, float 
         batch.Draw({x + 2, m_pianoY}, {w - 4, 3}, {1, 1, 1, 0.1f});
     }
 
-    // Gradient highlights for active keys
-    batch.SetBlendMode(true); // Additive blending for vivid glow
+    // 5. Black key highlights
+    batch.SetBlendMode(true);
     batch.SetTexture(m_gradientTex.Get());
     for (int n = NoteState::FIRST_KEY; n <= NoteState::LAST_KEY; n++) {
+        if (!m_keys[n].isBlack) continue;
         auto& info = state[n];
         if (info.active) {
             float elapsed = currentTime - (float)info.onTime;
             float flash = std::max(0.0f, 1.0f - elapsed * 4.0f);
-            if (flash > 0) {
-                float x = m_keys[n].x + (m_keys[n].isBlack ? 0 : 1);
-                float w = m_keys[n].width - (m_keys[n].isBlack ? 0 : 2);
-                float h = m_pianoHeight * (m_keys[n].isBlack ? 0.63f : 1.0f);
-                util::Color c = m_channelColors[info.channel % 16];
-                batch.Draw({x, m_pianoY}, {w, h}, {c.r * flash, c.g * flash, c.b * flash, 1.0f});
-            }
+            float x = m_keys[n].x;
+            float w = m_keys[n].width;
+            float h = m_pianoHeight * 0.63f;
+            util::Color c = m_channelColors[info.channel % 64];
+            batch.Draw({x, m_pianoY}, {w, h}, {c.r, c.g, c.b, 0.4f + flash * 0.6f});
         }
     }
     batch.SetTexture(nullptr);
@@ -313,46 +386,47 @@ float PianoRenderer::GetKeyWidth(int note) const {
 }
 
 void PianoRenderer::DrawImpactFlashes(SpriteBatch& batch, float currentTime) {
+    batch.SetBlendMode(true);
+    batch.SetTexture(m_glowTex.Get());
     for (auto& flash : m_impacts) {
         float elapsed = currentTime - flash.time;
         float t = elapsed / flash.duration;
         if (t > 1.0f) continue;
         float x = m_keys[flash.note].x + m_keys[flash.note].width * 0.5f;
-        float radius = 10.0f + t * 40.0f;
-        batch.Draw({x - radius, m_pianoY - radius}, {radius * 2, radius * 2}, {1, 0.9f, 0.7f, (1.0f - t) * 0.5f});
+        float radius = 20.0f + t * 60.0f;
+        util::Color c = m_channelColors[0]; // Or use a flash color
+        batch.Draw({x - radius, m_pianoY - radius}, {radius * 2, radius * 2}, {1, 0.9f, 0.7f, (1.0f - t) * 0.6f});
     }
-}
-
-void PianoRenderer::DrawAtmosphere(SpriteBatch& batch, const NoteState&) {
-    batch.SetBlendMode(true);
-    batch.SetTexture(m_gradientTex.Get());
-    batch.Draw({0, m_pianoY - 100}, {(float)m_viewW, 100}, {0.1f, 0.15f, 0.3f, 0.1f});
     batch.SetTexture(nullptr);
     batch.SetBlendMode(false);
 }
 
+void PianoRenderer::DrawAtmosphere(SpriteBatch& batch, const NoteState&) {
+    // 1. Full-screen background gradient for depth
+    batch.SetTexture(m_gradientTex.Get());
+    batch.SetBlendMode(false);
+    // Dark top to slightly lighter bottom (subtle gradient overlay)
+    batch.Draw({0, 0}, {(float)m_viewW, (float)m_viewH}, {0.02f, 0.02f, 0.05f, 0.5f}); 
+    
+    batch.SetTexture(nullptr);
+}
+
 void PianoRenderer::DrawSaber(SpriteBatch& batch, const NoteState& state, float) {
     batch.SetBlendMode(true);
+    batch.SetTexture(m_glowTex.Get());
     
-    // Draw solid cores
     for (int i = 0; i < 128; i++) {
         if (state[i].active) {
-            util::Color c = m_channelColors[state[i].channel % 16];
-            float x = m_keys[i].x;
+            util::Color c = m_channelColors[state[i].channel % 64];
+            float x = m_keys[i].x + m_keys[i].width * 0.5f;
             float w = m_keys[i].width;
-            batch.Draw({x - w*0.5f, m_pianoY - 2}, {w * 2.0f, 4}, {c.r, c.g, c.b, 1.0f});
-            batch.Draw({x - w, m_pianoY - 10}, {w * 3.0f, 20}, {c.r*0.5f, c.g*0.5f, c.b*0.5f, 0.5f});
-        }
-    }
-
-    // Draw fire/sparks using gradient texture
-    batch.SetTexture(m_gradientTex.Get());
-    for (int i = 0; i < 128; i++) {
-        if (state[i].active) {
-            util::Color c = m_channelColors[state[i].channel % 16];
-            float x = m_keys[i].x;
-            float w = m_keys[i].width;
-            batch.Draw({x, m_pianoY - 40}, {w, 40}, {c.r*0.8f, c.g*0.8f, c.b*0.8f, 1.0f});
+            
+            // Core Glow
+            batch.Draw({x - w * 1.5f, m_pianoY - w * 1.5f}, {w * 3.0f, w * 3.0f}, {c.r, c.g, c.b, 0.8f});
+            
+            // Outer Atmosphere
+            float outer = w * 5.0f;
+            batch.Draw({x - outer * 0.5f, m_pianoY - outer * 0.5f}, {outer, outer}, {c.r * 0.5f, c.g * 0.5f, c.b * 0.5f, 0.3f});
         }
     }
     batch.SetTexture(nullptr);

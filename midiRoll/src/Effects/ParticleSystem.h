@@ -27,6 +27,7 @@ public:
     void EmitSparks(float x, float y, util::Color color);
     void Update(float dt);
     void Draw(SpriteBatch& batch);
+    void SetTexture(ID3D11ShaderResourceView* tex) { m_texture = tex; }
 
     void SetGravity(float g) { m_gravity = g; }
     void SetEmberMode(bool on) { m_emberMode = on; }
@@ -42,9 +43,10 @@ private:
     Particle m_dummyParticle{};   // sink for AllocateParticle when pool is full
     size_t m_nextSearchIdx = 0;   // ring-search cursor for free slot
     std::mt19937 m_rng{std::random_device{}()};
-    float m_gravity = 300.0f;
+    float m_gravity = 0.0f;
     bool  m_emberMode = false;
     size_t m_activeCount = 0;
+    ID3D11ShaderResourceView* m_texture = nullptr;
 };
 
 } // namespace pfd

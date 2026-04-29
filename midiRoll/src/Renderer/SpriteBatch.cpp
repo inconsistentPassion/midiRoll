@@ -128,15 +128,16 @@ bool SpriteBatch::Initialize(ID3D11Device* device) {
     dsDesc.DepthEnable = FALSE;
     device->CreateDepthStencilState(&dsDesc, m_depthStencilState.GetAddressOf());
 
-    // Sampler state
+    // Sampler state - use anisotropic filtering for better quality
     D3D11_SAMPLER_DESC sampDesc{};
-    sampDesc.Filter         = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
+    sampDesc.Filter         = D3D11_FILTER_ANISOTROPIC;
     sampDesc.AddressU       = D3D11_TEXTURE_ADDRESS_CLAMP;
     sampDesc.AddressV       = D3D11_TEXTURE_ADDRESS_CLAMP;
     sampDesc.AddressW       = D3D11_TEXTURE_ADDRESS_CLAMP;
     sampDesc.ComparisonFunc = D3D11_COMPARISON_NEVER;
     sampDesc.MinLOD         = 0;
     sampDesc.MaxLOD         = D3D11_FLOAT32_MAX;
+    sampDesc.MaxAnisotropy  = 4;
     device->CreateSamplerState(&sampDesc, m_samplerState.GetAddressOf());
 
     uint32_t white = 0xFFFFFFFF;

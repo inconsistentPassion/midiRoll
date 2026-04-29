@@ -11,6 +11,7 @@
 #include "Util/Color.h"
 #include "Util/Timer.h"
 #include "Input.h"
+#include "Input/MidiInput.h"
 #include "States/Context.h"
 #include "States/AppStateManager.h"
 #include <string>
@@ -38,6 +39,7 @@ private:
     SoundFontEngine m_audio;
     MidiParser      m_midi;
     Input           m_input;
+    MidiInput       m_midiInput;
     util::Timer     m_timer;
 
     // State machine
@@ -46,6 +48,10 @@ private:
 
     // Auto-load SoundFont on startup
     void TryAutoLoadSoundFont();
+
+    // Reconnect MIDI if device was chosen but lost
+    void PollMidiReconnect(double dt);
+    double m_midiReconnectTimer{0.0};
 };
 
 } // namespace pfd

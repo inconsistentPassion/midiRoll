@@ -1,4 +1,5 @@
 #include "FreePlayState.h"
+#include "StateHelpers.h"
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
@@ -32,16 +33,55 @@ Transition FreePlayState::Update(Context& ctx, double dt) {
     m_liveTime += dt;
     double currentTime = ctx.timer->Elapsed();
 
+    // Process keyboard/mouse note events
     for (auto& ev : ctx.input->GetEvents()) {
         if (ev.isDown) {
-            ctx.noteState->NoteOn(ev.note, 100, 0, currentTime);
-            ctx.audio->NoteOn(0, ev.note, 100);
+            int vel = std::clamp(ev.velocity, 1, 127);
+            ctx.noteState->NoteOn(ev.note, vel, 15, currentTime);
+            ctx.audio->NoteOn(15, ev.note, vel);
         } else {
-            ctx.noteState->NoteOff(ev.note, 0, currentTime);
-            ctx.audio->NoteOff(0, ev.note);
+            ctx.noteState->NoteOff(ev.note, 15, currentTime);
+            ctx.audio->NoteOff(15, ev.note);
         }
     }
     ctx.input->ClearEvents();
+
+    // Process MIDI device control changes (sustain pedal, etc.)
+    if (ctx.midiInput && ctx.midiInput->IsOpen()) {
+        for (auto& ev : ctx.midiInput->Poll()) {
+            using Kind = MidiInput::NoteEvent::Kind;
+            switch (ev.kind) {
+            case Kind::NoteOn:
+                ctx.noteState->NoteOn(ev.data1, ev.data2, ev.channel, currentTime);
+                ctx.audio->NoteOn(ev.channel, ev.data1, ev.data2);
+                break;
+            case Kind::NoteOff:
+                ctx.noteState->NoteOff(ev.data1, ev.channel, currentTime);
+                ctx.audio->NoteOff(ev.channel, ev.data1);
+                break;
+            case Kind::ControlChange:
+                ctx.audio->ControlChange(ev.channel, ev.data1, ev.data2);
+                // CC #64 = sustain pedal
+                if (ev.data1 == 64) {
+                    if (ev.data2 >= 64) ctx.noteState->SustainOn(ev.channel);
+                    else                ctx.noteState->SustainOff(ev.channel, currentTime);
+                }
+                break;
+            case Kind::PitchBend:
+                ctx.audio->PitchBend(ev.channel, ev.data2);
+                break;
+            case Kind::ProgramChange:
+                ctx.audio->ProgramChange(ev.channel, ev.data1);
+                break;
+            case Kind::ChannelPressure:
+                ctx.audio->ChannelPressure(ev.channel, ev.data1);
+                break;
+            case Kind::KeyPressure:
+                ctx.audio->KeyPressure(ev.channel, ev.data1, ev.data2);
+                break;
+            }
+        }
+    }
 
     ctx.audio->ProcessEvents();
     ctx.piano->Update(*ctx.noteState, (float)currentTime, (float)dt);
@@ -58,14 +98,27 @@ void FreePlayState::Render(Context& ctx) {
 
     batch.Begin(ctx.d3d->Context(), vw, vh);
 
-    batch.Draw({0, 0}, {(float)vw, (float)vh}, {0.02f, 0.02f, 0.04f, 1.0f});
+    if (m_backgroundTex) {
+        batch.Draw({0, 0}, {(float)vw, (float)vh}, m_backgroundTex.Get(), {0,0}, {1,1}, {1,1,1,1});
+        batch.Draw({0, 0}, {(float)vw, (float)vh}, {0, 0, 0, 0.35f});
+    } else {
+        batch.Draw({0, 0}, {(float)vw, (float)vh}, {0.02f, 0.02f, 0.04f, 1.0f});
+    }
 
     ctx.piano->Render(batch, *ctx.noteState, {}, currentTime, currentTime, (float)ctx.timer->Delta());
 
     if (m_showHUD) DrawHUD(ctx);
 
+    // Capture screen for blur before drawing pause menu overlay
+    ID3D11ShaderResourceView* screenTex = nullptr;
+    if (m_pause.IsOpen()) {
+        batch.End();
+        screenTex = ctx.d3d->CaptureScreen();
+        batch.Begin(ctx.d3d->Context(), vw, vh);
+    }
+
     // Pause menu on top
-    m_pause.Render(batch, *ctx.font, ctx.piano->GetNoteTex(), vw, vh);
+    m_pause.Render(batch, *ctx.font, ctx.piano->GetNoteTex(), vw, vh, screenTex);
 
     batch.End();
 }
@@ -74,7 +127,7 @@ void FreePlayState::DrawHUD(Context& ctx) {
     auto& font = *ctx.font;
     auto& batch = *ctx.spriteBatch;
 
-    font.DrawText(batch, "FREE PLAY", 10, 10, 0.3f, 0.8f, 1.0f, 0.8f);
+    font.DrawText(batch, "FREE PLAY", 12, 12, 0.35f, 0.85f, 1.0f, 1.0f);
 
     int activeCount = 0;
     for (int i = 0; i < 128; i++) {
@@ -83,43 +136,34 @@ void FreePlayState::DrawHUD(Context& ctx) {
     if (activeCount > 0) {
         char buf[32];
         std::snprintf(buf, sizeof(buf), "Notes: %d", activeCount);
-        font.DrawText(batch, buf, 10, 35, 0.5f, 0.5f, 0.6f, 0.6f);
+        font.DrawText(batch, buf, 12, 42, 0.7f, 0.7f, 0.8f, 0.75f);
     }
 
     if (ctx.audio->IsSoundFontLoaded()) {
         std::filesystem::path p(ctx.soundFontPath);
-        font.DrawText(batch, "SF2: " + p.filename().string(), 10, 55, 0.3f, 0.5f, 0.3f, 0.5f);
+        font.DrawText(batch, "SF2: " + p.filename().string(), 12, 68, 0.4f, 0.75f, 0.4f, 0.75f);
+    } else {
+        font.DrawText(batch, "SF2: none", 12, 68, 0.6f, 0.4f, 0.3f, 0.75f);
+    }
+
+    if (ctx.midiInput && ctx.midiInput->IsOpen()) {
+        font.DrawText(batch, "MIDI: " + ctx.midiInput->DeviceName(), 12, 94, 0.35f, 0.75f, 0.9f, 0.75f);
+    } else {
+        font.DrawText(batch, "MIDI: no device", 12, 94, 0.65f, 0.45f, 0.45f, 0.75f);
     }
 
     const char* hint = "ESC: Menu  |  F1: Toggle HUD";
-    font.DrawText(batch, hint, 10, (float)ctx.window->Height() - ctx.piano->GetPianoHeight() - 25,
-                  0.25f, 0.25f, 0.35f, 0.45f);
+    float hy = (float)ctx.window->Height() - ctx.piano->GetPianoHeight() - 30.0f;
+    font.DrawText(batch, hint, 12, hy, 0.55f, 0.55f, 0.65f, 0.75f);
 }
 
 Transition FreePlayState::OnKey(Context& ctx, int key, bool down) {
     // Pause menu takes priority
     if (m_pause.IsOpen()) {
         PauseAction action = m_pause.OnKey(key, down);
-        if (action == PauseAction::Resume) return {};
-        if (action == PauseAction::ChangeSoundFont) {
-            wchar_t filePath[MAX_PATH] = {};
-            OPENFILENAMEW ofn{};
-            ofn.lStructSize = sizeof(ofn);
-            ofn.hwndOwner = ctx.window->Handle();
-            ofn.lpstrFilter = L"SoundFont Files (*.sf2)\0*.sf2\0All Files (*.*)\0*.*\0";
-            ofn.lpstrFile = filePath;
-            ofn.nMaxFile = MAX_PATH;
-            ofn.lpstrTitle = L"Open SoundFont File";
-            ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
-            if (GetOpenFileNameW(&ofn)) {
-                int nlen = WideCharToMultiByte(CP_UTF8, 0, filePath, -1, nullptr, 0, nullptr, nullptr);
-                std::string narrow(nlen - 1, '\0');
-                WideCharToMultiByte(CP_UTF8, 0, filePath, -1, narrow.data(), nlen, nullptr, nullptr);
-                ctx.audio->LoadSoundFont(narrow);
-                ctx.soundFontPath = narrow;
-            }
-            return Transition::Handled();
-        }
+        if (action == PauseAction::Resume)           return {};
+        if (action == PauseAction::ChangeSoundFont)  { OpenSoundFontDialog(ctx); return Transition::Handled(); }
+        if (action == PauseAction::ChangeBackground) { OpenBackgroundDialog(ctx, m_backgroundTex); return Transition::Handled(); }
         if (action == PauseAction::ToggleMode) {
             ctx.piano->ToggleDirection();
             m_pause.SetLabel(3, ctx.piano->IsFalling() ? "MODE: FALLING" : "MODE: RISING");
@@ -151,26 +195,9 @@ Transition FreePlayState::OnMouse(Context& ctx, int x, int y, bool down, bool mo
     // Pause menu takes priority
     if (m_pause.IsOpen()) {
         PauseAction action = m_pause.OnMouse(x, y, down, move, ctx.window->Width(), ctx.window->Height());
-        if (action == PauseAction::Resume) return {};
-        if (action == PauseAction::ChangeSoundFont) {
-            wchar_t filePath[MAX_PATH] = {};
-            OPENFILENAMEW ofn{};
-            ofn.lStructSize = sizeof(ofn);
-            ofn.hwndOwner = ctx.window->Handle();
-            ofn.lpstrFilter = L"SoundFont Files (*.sf2)\0*.sf2\0All Files (*.*)\0*.*\0";
-            ofn.lpstrFile = filePath;
-            ofn.nMaxFile = MAX_PATH;
-            ofn.lpstrTitle = L"Open SoundFont File";
-            ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
-            if (GetOpenFileNameW(&ofn)) {
-                int nlen = WideCharToMultiByte(CP_UTF8, 0, filePath, -1, nullptr, 0, nullptr, nullptr);
-                std::string narrow(nlen - 1, '\0');
-                WideCharToMultiByte(CP_UTF8, 0, filePath, -1, narrow.data(), nlen, nullptr, nullptr);
-                ctx.audio->LoadSoundFont(narrow);
-                ctx.soundFontPath = narrow;
-            }
-            return Transition::Handled();
-        }
+        if (action == PauseAction::Resume)           return {};
+        if (action == PauseAction::ChangeSoundFont)  { OpenSoundFontDialog(ctx); return Transition::Handled(); }
+        if (action == PauseAction::ChangeBackground) { OpenBackgroundDialog(ctx, m_backgroundTex); return Transition::Handled(); }
         if (action == PauseAction::ToggleMode) {
             ctx.piano->ToggleDirection();
             m_pause.SetLabel(3, ctx.piano->IsFalling() ? "MODE: FALLING" : "MODE: RISING");
@@ -198,21 +225,21 @@ Transition FreePlayState::OnMouse(Context& ctx, int x, int y, bool down, bool mo
     if (down) {
         for (int n = 0; n < 128; n++) {
             if (m_mouseNotes[n] && n != currentKey) {
-                ctx.noteState->NoteOff(n, 0, currentTime);
-                ctx.audio->NoteOff(0, n);
+                ctx.noteState->NoteOff(n, 15, currentTime);
+                ctx.audio->NoteOff(15, n);
                 m_mouseNotes[n] = false;
             }
         }
         if (currentKey != -1 && !m_mouseNotes[currentKey]) {
-            ctx.noteState->NoteOn(currentKey, 100, 0, currentTime);
-            ctx.audio->NoteOn(0, currentKey, 100);
+            ctx.noteState->NoteOn(currentKey, 100, 15, currentTime);
+            ctx.audio->NoteOn(15, currentKey, 100);
             m_mouseNotes[currentKey] = true;
         }
     } else {
         for (int n = 0; n < 128; n++) {
             if (m_mouseNotes[n]) {
-                ctx.noteState->NoteOff(n, 0, currentTime);
-                ctx.audio->NoteOff(0, n);
+                ctx.noteState->NoteOff(n, 15, currentTime);
+                ctx.audio->NoteOff(15, n);
                 m_mouseNotes[n] = false;
             }
         }

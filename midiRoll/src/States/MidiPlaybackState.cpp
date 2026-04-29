@@ -1,9 +1,11 @@
 #include "MidiPlaybackState.h"
+#include "StateHelpers.h"
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
 #include <Windows.h>
 #include <commdlg.h>
+#include "../Util/TextureLoader.h"
 
 namespace pfd {
 
@@ -20,14 +22,19 @@ void MidiPlaybackState::Enter(Context& ctx) {
     m_draggingTimeline = false;
     m_showUI = true;
     m_playbackSpeed = 1.0;
+    m_clockAnchor = Clock::now();
+    m_timeAtAnchor = 0;
 
     ctx.audio->AllNotesOff();
     ctx.noteState->AllNotesOff(ctx.timer->Elapsed());
+    ctx.noteState->ClearVisualNotes();
     ctx.input->ClearEvents();
 
     if (ctx.midiLoaded) {
         m_sortedEvents = ctx.midi->GetAllEventsSorted();
         m_playing = true;
+        m_clockAnchor = Clock::now();
+        m_timeAtAnchor = 0;
     }
 }
 
@@ -44,14 +51,17 @@ void MidiPlaybackState::LoadMidiFile(Context& ctx, const std::wstring& path) {
         m_playbackTime = 0;
         m_playbackTick = 0;
         m_playing = true;
+        m_clockAnchor  = Clock::now();
+        m_timeAtAnchor = 0;
+
+        ctx.audio->AllNotesOff();
+        ctx.noteState->AllNotesOff(ctx.timer->Elapsed());
+        ctx.noteState->ClearVisualNotes();
 
         int nlen = WideCharToMultiByte(CP_UTF8, 0, path.c_str(), -1, nullptr, 0, nullptr, nullptr);
         std::string narrow(nlen - 1, '\0');
         WideCharToMultiByte(CP_UTF8, 0, path.c_str(), -1, narrow.data(), nlen, nullptr, nullptr);
         ctx.midiFilePath = narrow;
-
-        ctx.noteState->AllNotesOff(ctx.timer->Elapsed());
-        ctx.audio->AllNotesOff();
     }
 }
 
@@ -70,21 +80,62 @@ Transition MidiPlaybackState::Update(Context& ctx, double dt) {
         m_fpsAccum -= 1.0f;
     }
 
-    double currentTime = ctx.timer->Elapsed();
 
+    // Process keyboard input events
     for (auto& ev : ctx.input->GetEvents()) {
         if (ev.isDown) {
-            ctx.noteState->NoteOn(ev.note, 100, 0, currentTime);
-            ctx.audio->NoteOn(0, ev.note, 100);
+            int vel = std::clamp(ev.velocity, 1, 127);
+            ctx.noteState->NoteOn(ev.note, vel, 15, m_playbackTime);
+            ctx.audio->NoteOn(15, ev.note, vel);
         } else {
-            ctx.noteState->NoteOff(ev.note, 0, currentTime);
-            ctx.audio->NoteOff(0, ev.note);
+            ctx.noteState->NoteOff(ev.note, 15, m_playbackTime);
+            ctx.audio->NoteOff(15, ev.note);
         }
     }
     ctx.input->ClearEvents();
 
+    // Process live MIDI device input (for playing along with MIDI file)
+    if (ctx.midiInput && ctx.midiInput->IsOpen()) {
+        for (auto& ev : ctx.midiInput->Poll()) {
+            using Kind = MidiInput::NoteEvent::Kind;
+            switch (ev.kind) {
+            case Kind::NoteOn:
+                ctx.noteState->NoteOn(ev.data1, ev.data2, ev.channel, m_playbackTime);
+                ctx.audio->NoteOn(ev.channel, ev.data1, ev.data2);
+                break;
+            case Kind::NoteOff:
+                ctx.noteState->NoteOff(ev.data1, ev.channel, m_playbackTime);
+                ctx.audio->NoteOff(ev.channel, ev.data1);
+                break;
+            case Kind::ControlChange:
+                ctx.audio->ControlChange(ev.channel, ev.data1, ev.data2);
+                // CC #64 = sustain pedal
+                if (ev.data1 == 64) {
+                    if (ev.data2 >= 64) ctx.noteState->SustainOn(ev.channel);
+                    else                ctx.noteState->SustainOff(ev.channel, m_playbackTime);
+                }
+                break;
+            case Kind::PitchBend:
+                ctx.audio->PitchBend(ev.channel, ev.data2);
+                break;
+            case Kind::ProgramChange:
+                ctx.audio->ProgramChange(ev.channel, ev.data1);
+                break;
+            case Kind::ChannelPressure:
+                ctx.audio->ChannelPressure(ev.channel, ev.data1);
+                break;
+            case Kind::KeyPressure:
+                ctx.audio->KeyPressure(ev.channel, ev.data1, ev.data2);
+                break;
+            }
+        }
+    }
+
     if (ctx.midiLoaded && m_playing) {
-        m_playbackTime += dt * m_playbackSpeed;
+        // Derive playback time from wall clock — immune to frame-rate jitter.
+        using Dur = std::chrono::duration<double>;
+        double wallElapsed = Dur(Clock::now() - m_clockAnchor).count();
+        m_playbackTime = m_timeAtAnchor + wallElapsed * m_playbackSpeed;
         m_playbackTick = ctx.midi->SecondsToTicks(m_playbackTime);
 
         if (m_playbackTime >= ctx.midi->Duration()) {
@@ -96,11 +147,13 @@ Transition MidiPlaybackState::Update(Context& ctx, double dt) {
             }
         }
 
+        // Compare against ev.time (seconds) directly — avoids SecondsToTicks rounding
+        // which causes ±1 tick (~few ms) jitter per event.
         while (m_nextEventIdx < m_sortedEvents.size() &&
-               m_sortedEvents[m_nextEventIdx].tick <= m_playbackTick) {
+               m_sortedEvents[m_nextEventIdx].time <= m_playbackTime) {
             auto& ev = m_sortedEvents[m_nextEventIdx];
             uint8_t type = ev.status & 0xF0;
-            uint8_t chan = ev.status & 0x0F;
+            uint8_t chan = ev.globalChannel;
 
             if (ev.isNoteOn) {
                 ctx.noteState->NoteOn(ev.data1, ev.data2, chan, m_playbackTime);
@@ -110,6 +163,11 @@ Transition MidiPlaybackState::Update(Context& ctx, double dt) {
                 ctx.audio->NoteOff(chan, ev.data1);
             } else if (type == 0xB0) {
                 ctx.audio->ControlChange(chan, ev.data1, ev.data2);
+                // CC #64 = sustain pedal: track visually
+                if (ev.data1 == 64) {
+                    if (ev.data2 >= 64) ctx.noteState->SustainOn(chan);
+                    else                ctx.noteState->SustainOff(chan, m_playbackTime);
+                }
             } else if (type == 0xE0) {
                 ctx.audio->PitchBend(chan, ev.data1 | (ev.data2 << 7));
             } else if (type == 0xC0) {
@@ -137,7 +195,13 @@ void MidiPlaybackState::Render(Context& ctx) {
 
     batch.Begin(ctx.d3d->Context(), vw, vh);
 
-    batch.Draw({0, 0}, {(float)vw, (float)vh}, {0.02f, 0.02f, 0.04f, 1.0f});
+    if (m_backgroundTex) {
+        batch.Draw({0, 0}, {(float)vw, (float)vh}, m_backgroundTex.Get(), {0,0}, {1,1}, {1,1,1,1});
+        // Apply dimming overlay
+        batch.Draw({0, 0}, {(float)vw, (float)vh}, {0, 0, 0, m_backgroundDim});
+    } else {
+        batch.Draw({0, 0}, {(float)vw, (float)vh}, {0.02f, 0.02f, 0.04f, 1.0f});
+    }
 
     if (ctx.midiLoaded) {
         ctx.piano->Render(batch, *ctx.noteState, ctx.midi->Notes(),
@@ -157,8 +221,16 @@ void MidiPlaybackState::Render(Context& ctx) {
         ctx.font->DrawText(batch, buf, 10, 10, 0.4f, 0.4f, 0.5f, 0.55f);
     }
 
+    // Capture screen for blur before drawing pause menu overlay
+    ID3D11ShaderResourceView* screenTex = nullptr;
+    if (m_pause.IsOpen()) {
+        batch.End();
+        screenTex = ctx.d3d->CaptureScreen();
+        batch.Begin(ctx.d3d->Context(), vw, vh);
+    }
+
     // Pause menu on top
-    m_pause.Render(batch, *ctx.font, ctx.piano->GetNoteTex(), vw, vh);
+    m_pause.Render(batch, *ctx.font, ctx.piano->GetNoteTex(), vw, vh, screenTex);
 
     batch.End();
 }
@@ -241,30 +313,18 @@ Transition MidiPlaybackState::OnKey(Context& ctx, int key, bool down) {
         if (action == PauseAction::Resume) return {};
         if (action == PauseAction::ToggleSpeed) {
             static const double speeds[] = { 0.5, 0.75, 1.0, 1.25, 1.5, 2.0 };
-            int current = 2; // Default 1.0
+            int current = 2;
             for(int i=0; i<6; i++) if(std::abs(m_playbackSpeed - speeds[i]) < 0.01) { current = i; break; }
             m_playbackSpeed = speeds[(current + 1) % 6];
             char buf[32]; std::snprintf(buf, sizeof(buf), "SPEED: %.2fx", m_playbackSpeed);
             m_pause.SetLabel(1, buf);
             return Transition::Handled();
         }
-        if (action == PauseAction::ChangeSoundFont) {
-            wchar_t filePath[MAX_PATH] = {};
-            OPENFILENAMEW ofn{};
-            ofn.lStructSize = sizeof(ofn);
-            ofn.hwndOwner = ctx.window->Handle();
-            ofn.lpstrFilter = L"SoundFont Files (*.sf2)\0*.sf2\0All Files (*.*)\0*.*\0";
-            ofn.lpstrFile = filePath;
-            ofn.nMaxFile = MAX_PATH;
-            ofn.lpstrTitle = L"Open SoundFont File";
-            ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
-            if (GetOpenFileNameW(&ofn)) {
-                int nlen = WideCharToMultiByte(CP_UTF8, 0, filePath, -1, nullptr, 0, nullptr, nullptr);
-                std::string narrow(nlen - 1, '\0');
-                WideCharToMultiByte(CP_UTF8, 0, filePath, -1, narrow.data(), nlen, nullptr, nullptr);
-                ctx.audio->LoadSoundFont(narrow);
-                ctx.soundFontPath = narrow;
-            }
+        if (action == PauseAction::ChangeSoundFont)  { OpenSoundFontDialog(ctx); return Transition::Handled(); }
+        if (action == PauseAction::ChangeBackground) { OpenBackgroundDialog(ctx, m_backgroundTex); return Transition::Handled(); }
+        if (action == PauseAction::OpenMidiFile) {
+            std::wstring path = OpenMidiFileDialog(ctx.window->Handle());
+            if (!path.empty()) LoadMidiFile(ctx, path);
             return Transition::Handled();
         }
         if (action == PauseAction::ToggleMode) {
@@ -279,6 +339,7 @@ Transition MidiPlaybackState::OnKey(Context& ctx, int key, bool down) {
 
     if (!down) return {};
 
+    // Only handle control keys - let all other keys pass through for piano playing
     if (key == VK_ESCAPE) {
         char sbuf[32]; std::snprintf(sbuf, sizeof(sbuf), "SPEED: %.2fx", m_playbackSpeed);
         m_pause.SetLabel(1, sbuf);
@@ -287,20 +348,16 @@ Transition MidiPlaybackState::OnKey(Context& ctx, int key, bool down) {
         ctx.audio->AllNotesOff();
         return Transition::Handled();
     }
-    if (key == 'O') {
-        wchar_t filePath[MAX_PATH] = {};
-        OPENFILENAMEW ofn{};
-        ofn.lStructSize = sizeof(ofn);
-        ofn.hwndOwner = ctx.window->Handle();
-        ofn.lpstrFilter = L"MIDI Files (*.mid;*.midi)\0*.mid;*.midi\0All Files (*.*)\0*.*\0";
-        ofn.lpstrFile = filePath;
-        ofn.nMaxFile = MAX_PATH;
-        ofn.lpstrTitle = L"Open MIDI File";
-        ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
-        if (GetOpenFileNameW(&ofn)) LoadMidiFile(ctx, filePath);
+    // Playback controls only when pause menu is NOT open
+    if (key == VK_SPACE) {
+        m_playing = !m_playing;
+        // Re-anchor wall clock on resume so we continue from exactly where we paused.
+        if (m_playing) {
+            m_clockAnchor  = Clock::now();
+            m_timeAtAnchor = m_playbackTime;
+        }
         return Transition::Handled();
     }
-    if (key == VK_SPACE) { m_playing = !m_playing; return Transition::Handled(); }
     if (key == 'L') { m_loop = !m_loop; return Transition::Handled(); }
     if (key == 'H') { m_showUI = !m_showUI; return Transition::Handled(); }
     if (key == VK_RIGHT && ctx.midiLoaded) {
@@ -317,6 +374,7 @@ Transition MidiPlaybackState::OnKey(Context& ctx, int key, bool down) {
         return Transition::Handled();
     }
 
+    // All other keys (including piano keys A-K, W-U, O-P, Z-M) pass through to Input system
     return {};
 }
 
@@ -337,23 +395,11 @@ Transition MidiPlaybackState::OnMouse(Context& ctx, int x, int y, bool down, boo
             m_pause.SetLabel(1, buf);
             return Transition::Handled();
         }
-        if (action == PauseAction::ChangeSoundFont) {
-            wchar_t filePath[MAX_PATH] = {};
-            OPENFILENAMEW ofn{};
-            ofn.lStructSize = sizeof(ofn);
-            ofn.hwndOwner = ctx.window->Handle();
-            ofn.lpstrFilter = L"SoundFont Files (*.sf2)\0*.sf2\0All Files (*.*)\0*.*\0";
-            ofn.lpstrFile = filePath;
-            ofn.nMaxFile = MAX_PATH;
-            ofn.lpstrTitle = L"Open SoundFont File";
-            ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
-            if (GetOpenFileNameW(&ofn)) {
-                int nlen = WideCharToMultiByte(CP_UTF8, 0, filePath, -1, nullptr, 0, nullptr, nullptr);
-                std::string narrow(nlen - 1, '\0');
-                WideCharToMultiByte(CP_UTF8, 0, filePath, -1, narrow.data(), nlen, nullptr, nullptr);
-                ctx.audio->LoadSoundFont(narrow);
-                ctx.soundFontPath = narrow;
-            }
+        if (action == PauseAction::ChangeSoundFont)  { OpenSoundFontDialog(ctx); return Transition::Handled(); }
+        if (action == PauseAction::ChangeBackground) { OpenBackgroundDialog(ctx, m_backgroundTex); return Transition::Handled(); }
+        if (action == PauseAction::OpenMidiFile) {
+            std::wstring path = OpenMidiFileDialog(ctx.window->Handle());
+            if (!path.empty()) LoadMidiFile(ctx, path);
             return Transition::Handled();
         }
         if (action == PauseAction::ToggleMode) {
@@ -393,19 +439,30 @@ void MidiPlaybackState::SeekTo(Context& ctx, double newTime) {
     m_playbackTime = std::clamp(newTime, 0.0, ctx.midi->Duration());
     m_playbackTick = ctx.midi->SecondsToTicks(m_playbackTime);
 
+    // Re-anchor wall clock so Update() resumes from the new position cleanly.
+    m_clockAnchor  = Clock::now();
+    m_timeAtAnchor = m_playbackTime;
+
     // Clear all active notes
     ctx.audio->AllNotesOff();
     ctx.noteState->AllNotesOff(ctx.timer->Elapsed());
     ctx.noteState->ClearVisualNotes();
 
-    // Fast-forward nextEventIdx and catch up audio state
+    // Reset all controllers on all 16 channels to avoid stuck sustain/pedal after seek.
+    for (int ch = 0; ch < 16; ch++) {
+        ctx.audio->ControlChange(ch, 121, 0); // Reset All Controllers
+        ctx.audio->ControlChange(ch, 64, 0);  // Sustain pedal off
+        ctx.audio->ControlChange(ch, 66, 0);  // Sostenuto off
+        ctx.audio->ControlChange(ch, 67, 0);  // Soft pedal off
+    }
+
+    // Fast-forward nextEventIdx and replay program/CC state up to seek point.
     m_nextEventIdx = 0;
-    while (m_nextEventIdx < m_sortedEvents.size() && m_sortedEvents[m_nextEventIdx].tick <= m_playbackTick) {
+    while (m_nextEventIdx < m_sortedEvents.size() && m_sortedEvents[m_nextEventIdx].time <= m_playbackTime) {
         auto& ev = m_sortedEvents[m_nextEventIdx];
         uint8_t type = ev.status & 0xF0;
-        uint8_t chan = ev.status & 0x0F;
+        uint8_t chan = ev.globalChannel;
 
-        // Catch up state changes like Program Change and Control Change (Sustain, etc.)
         if (type == 0xB0) ctx.audio->ControlChange(chan, ev.data1, ev.data2);
         else if (type == 0xC0) ctx.audio->ProgramChange(chan, ev.data1);
         else if (type == 0xE0) ctx.audio->PitchBend(chan, ev.data1 | (ev.data2 << 7));

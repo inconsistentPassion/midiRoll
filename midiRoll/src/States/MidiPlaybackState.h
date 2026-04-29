@@ -2,6 +2,7 @@
 #include "AppState.h"
 #include "PauseMenu.h"
 #include <vector>
+#include <chrono>
 
 namespace pfd {
 
@@ -21,6 +22,12 @@ private:
     void DrawLoadPrompt(Context& ctx);
     void SeekTo(Context& ctx, double newTime);
 
+    // Wall-clock anchored playback: m_playbackTime = m_timeAtAnchor + (now - m_clockAnchor) * speed
+    // This means frame-rate jitter never accumulates into timing drift.
+    using Clock = std::chrono::high_resolution_clock;
+    Clock::time_point m_clockAnchor{};   // wall-clock moment we last set the anchor
+    double            m_timeAtAnchor{};  // playback time at that moment
+
     double  m_playbackTime{};
     uint32_t m_playbackTick{};
     size_t  m_nextEventIdx{};
@@ -36,6 +43,8 @@ private:
     int     m_fpsDisplay{};
     bool    m_draggingTimeline{};
     bool    m_showUI{true};
+    Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> m_backgroundTex;
+    float m_backgroundDim{0.3f};
 };
 
 } // namespace pfd
