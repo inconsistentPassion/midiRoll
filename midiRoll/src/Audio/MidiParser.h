@@ -38,6 +38,7 @@ struct TempoEntry {
 class MidiParser {
 public:
     bool Load(const std::string& path);
+    bool Load(const std::wstring& path);
     bool LoadFromMemory(const uint8_t* data, size_t size);
 
     const std::vector<MidiTrack>& Tracks() const { return m_tracks; }

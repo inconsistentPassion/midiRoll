@@ -45,6 +45,7 @@ public:
     void Flush();
     
     void SetTexture(ID3D11ShaderResourceView* srv);
+    void SetBlendMode(bool additive);
 
 private:
     struct CBPerFrame {
@@ -61,6 +62,7 @@ private:
     ComPtr<ID3D11PixelShader>         m_ps;
     ComPtr<ID3D11InputLayout>         m_layout;
     ComPtr<ID3D11BlendState>          m_blendState;
+    ComPtr<ID3D11BlendState>          m_additiveBlendState;
     ComPtr<ID3D11RasterizerState>     m_rasterizerState;
     ComPtr<ID3D11DepthStencilState>   m_depthStencilState;
     ComPtr<ID3D11SamplerState>        m_samplerState;
@@ -69,6 +71,7 @@ private:
     ID3D11DeviceContext*      m_ctx{};
     ID3D11ShaderResourceView* m_currentTex{};
     uint32_t m_viewW{}, m_viewH{};
+    bool m_additive = false;
 
     std::vector<SpriteInstance> m_instances;
     size_t m_maxInstances = 16384;

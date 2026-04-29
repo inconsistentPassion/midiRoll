@@ -121,6 +121,8 @@ void GameLoop::OnResize(int width, int height) {
 }
 
 void GameLoop::OnKey(int key, bool down) {
+    m_input.OnKey(key, down);
+
     if (!down) return;
 
     if (key == VK_ESCAPE) {
@@ -190,13 +192,14 @@ void GameLoop::Update(double dt) {
     if (m_menuOpen) { m_audio.ProcessEvents(); return; }
 
     double currentTime = m_timer.Elapsed();
-
+    double renderTime = m_midiLoaded ? m_playbackTime : currentTime;
+    
     for (auto& ev : m_input.GetEvents()) {
         if (ev.isDown) {
-            m_noteState.NoteOn(ev.note, 100, 0, currentTime);
+            m_noteState.NoteOn(ev.note, 100, 0, renderTime);
             m_audio.NoteOn(0, ev.note, 100);
         } else {
-            m_noteState.NoteOff(ev.note, 0, currentTime);
+            m_noteState.NoteOff(ev.note, 0, renderTime);
             m_audio.NoteOff(0, ev.note);
         }
     }
@@ -207,19 +210,32 @@ void GameLoop::Update(double dt) {
         while (m_nextEventIdx < m_sortedEvents.size() &&
                m_sortedEvents[m_nextEventIdx].time <= m_playbackTime) {
             auto& ev = m_sortedEvents[m_nextEventIdx];
+            uint8_t type = ev.status & 0xF0;
+            uint8_t chan = ev.status & 0x0F;
+
             if (ev.isNoteOn) {
-                m_noteState.NoteOn(ev.data1, ev.data2, ev.status & 0x0F, currentTime);
-                m_audio.NoteOn(ev.status & 0x0F, ev.data1, ev.data2);
+                m_noteState.NoteOn(ev.data1, ev.data2, chan, m_playbackTime);
+                m_audio.NoteOn(chan, ev.data1, ev.data2);
             } else if (ev.isNoteOff) {
-                m_noteState.NoteOff(ev.data1, ev.status & 0x0F, currentTime);
-                m_audio.NoteOff(ev.status & 0x0F, ev.data1);
+                m_noteState.NoteOff(ev.data1, chan, m_playbackTime);
+                m_audio.NoteOff(chan, ev.data1);
+            } else if (type == 0xB0) {
+                m_audio.ControlChange(chan, ev.data1, ev.data2);
+            } else if (type == 0xE0) {
+                m_audio.PitchBend(chan, ev.data1 | (ev.data2 << 7));
+            } else if (type == 0xC0) {
+                m_audio.ProgramChange(chan, ev.data1);
+            } else if (type == 0xD0) {
+                m_audio.ChannelPressure(chan, ev.data1);
+            } else if (type == 0xA0) {
+                m_audio.KeyPressure(chan, ev.data1, ev.data2);
             }
             m_nextEventIdx++;
         }
     }
 
     m_audio.ProcessEvents();
-    m_piano.Update(m_noteState, (float)currentTime, (float)dt);
+    m_piano.Update(m_noteState, (float)renderTime, (float)dt);
     m_noteState.ClearRecentEvents();
 }
 
@@ -244,7 +260,8 @@ void GameLoop::Render(double) {
     
     // We pass the "live" time for everything, but the MIDI notes need to be 
     // interpreted relative to the current playback position.
-    m_piano.Render(m_spriteBatch, m_noteState, m_midi.Notes(), currentTime, (float)m_playbackTime, (float)m_timer.Delta());
+    float renderTime = m_midiLoaded ? (float)m_playbackTime : currentTime;
+    m_piano.Render(m_spriteBatch, m_noteState, m_midi.Notes(), renderTime, renderTime, (float)m_timer.Delta());
     
     // 2. Draw UI/Menu
     if (m_menuOpen) {
@@ -265,23 +282,36 @@ void GameLoop::Render(double) {
 }
 
 void GameLoop::RenderMenu(SpriteBatch& batch, int viewW, int viewH) {
-    batch.SetTexture(m_font.GetTexture());
-    batch.Draw({0, 0}, {(float)viewW, (float)viewH}, {0.0f, 0.0f, 0.0f, 0.7f});
+    batch.SetTexture(nullptr);
+    // Dark background overlay
+    batch.Draw({0, 0}, {(float)viewW, (float)viewH}, {0.0f, 0.0f, 0.01f, 0.75f});
 
-    float panelW = 500.0f, panelH = 420.0f;
+    auto drawRounded = [&](float x, float y, float w, float h, util::Vec4 color) {
+        batch.SetTexture(m_piano.GetNoteTex());
+        float cap = h * 0.5f;
+        if (cap > w * 0.5f) cap = w * 0.5f;
+        batch.Draw({x, y}, {w, cap}, color, {0.0f, 0.0f}, {1.0f, 0.5f});
+        if (h > cap * 2) batch.Draw({x, y + cap}, {w, h - cap * 2}, color, {0.0f, 0.49f}, {1.0f, 0.02f});
+        batch.Draw({x, y + h - cap}, {w, cap}, color, {0.0f, 0.5f}, {1.0f, 0.5f});
+        batch.SetTexture(nullptr);
+    };
+
+    float panelW = 520.0f, panelH = 460.0f;
     float panelX = ((float)viewW - panelW) * 0.5f;
     float panelY = ((float)viewH - panelH) * 0.5f;
 
-    batch.Draw({panelX, panelY}, {panelW, panelH}, {0.08f, 0.08f, 0.12f, 0.95f});
-    float b = 2.0f;
-    batch.Draw({panelX, panelY}, {panelW, b}, {0.3f, 0.6f, 1.0f, 0.8f});
-    batch.Draw({panelX, panelY + panelH - b}, {panelW, b}, {0.3f, 0.6f, 1.0f, 0.8f});
-    batch.Draw({panelX, panelY}, {b, panelH}, {0.3f, 0.6f, 1.0f, 0.8f});
-    batch.Draw({panelX + panelW - b, panelY}, {b, panelH}, {0.3f, 0.6f, 1.0f, 0.8f});
+    // Main Panel with subtle gradient
+    drawRounded(panelX, panelY, panelW, panelH, {0.05f, 0.05f, 0.08f, 0.98f});
+    batch.SetTexture(m_piano.GetGradientTex());
+    batch.Draw({panelX + 10, panelY + 10}, {panelW - 20, 60}, {0.1f, 0.15f, 0.25f, 0.4f});
+    batch.SetTexture(nullptr);
+    
+    // Header
+    m_font.DrawText(batch, "CONFIGURATION", panelX + 30, panelY + 25, 0.4f, 0.7f, 1.0f, 1.0f);
 
-    float itemH = 48.0f, itemPad = 6.0f;
-    float startY = panelY + 30.0f, textX = panelX + 30.0f;
-    float valueX = panelX + panelW - 180.0f;
+    float itemH = 50.0f, itemPad = 8.0f;
+    float startY = panelY + 85.0f, textX = panelX + 35.0f;
+    float valueX = panelX + panelW - 190.0f;
     int sel = static_cast<int>(m_selectedItem);
     int count = static_cast<int>(MenuItem::COUNT);
 
@@ -290,64 +320,55 @@ void GameLoop::RenderMenu(SpriteBatch& batch, int viewW, int viewH) {
         bool isSel = (i == sel);
 
         if (isSel) {
-            batch.Draw({panelX + 4, y}, {panelW - 8, itemH}, {0.2f, 0.4f, 0.8f, 0.4f});
-            batch.Draw({panelX + 4, y}, {4.0f, itemH}, {0.4f, 0.7f, 1.0f, 1.0f});
-        } else {
-            batch.Draw({panelX + 4, y}, {panelW - 8, itemH}, {0.12f, 0.12f, 0.16f, 0.6f});
+            batch.SetBlendMode(true);
+            drawRounded(panelX + 15, y, panelW - 30, itemH, {0.1f, 0.3f, 0.6f, 0.5f});
+            batch.SetBlendMode(false);
+            batch.Draw({panelX + 15, y + 5}, {4.0f, itemH - 10}, {0.3f, 0.7f, 1.0f, 1.0f});
         }
 
         const char* label = "???";
-        float tR = 0.9f, tG = 0.9f, tB = 0.9f;
+        float tR = 0.8f, tG = 0.8f, tB = 0.8f;
         switch (static_cast<MenuItem>(i)) {
-        case MenuItem::LoadMidi:       label = "Load MIDI File";  tR=0.3f; tG=0.8f; tB=0.3f; break;
-        case MenuItem::LoadSoundFont:  label = "Load SoundFont";  tR=0.8f; tG=0.6f; tB=0.2f; break;
-        case MenuItem::NoteSpeed:      label = "Note Speed";      tR=0.3f; tG=0.6f; tB=1.0f; break;
-        case MenuItem::Direction:      label = "Direction";       tR=0.8f; tG=0.3f; tB=0.8f; break;
-        case MenuItem::Volume:         label = "Volume";          tR=1.0f; tG=0.8f; tB=0.2f; break;
-        case MenuItem::Resume:         label = "Resume";          tR=0.3f; tG=1.0f; tB=0.5f; break;
-        case MenuItem::Quit:           label = "Quit";            tR=1.0f; tG=0.3f; tB=0.3f; break;
+        case MenuItem::LoadMidi:       label = "LOAD MIDI";  tR=0.5f; tG=1.0f; tB=0.5f; break;
+        case MenuItem::LoadSoundFont:  label = "SOUNDFONT";  tR=1.0f; tG=0.8f; tB=0.3f; break;
+        case MenuItem::NoteSpeed:      label = "SPEED";      tR=0.5f; tG=0.8f; tB=1.0f; break;
+        case MenuItem::Direction:      label = "DIRECTION";  tR=0.9f; tG=0.5f; tB=1.0f; break;
+        case MenuItem::Volume:         label = "AUDIO";      tR=1.0f; tG=0.9f; tB=0.4f; break;
+        case MenuItem::Resume:         label = "RESUME";     tR=0.6f; tG=0.9f; tB=0.7f; break;
+        case MenuItem::Quit:           label = "EXIT";       tR=1.0f; tG=0.4f; tB=0.4f; break;
         default: break;
         }
-        float textY = y + (itemH - 7.0f * 2.5f) * 0.5f;
-        m_font.DrawText(batch, label, textX, textY, tR, tG, tB, 1.0f);
 
-        // NoteSpeed slider
-        if (static_cast<MenuItem>(i) == MenuItem::NoteSpeed) {
-            float barW = 130.0f, barH = 8.0f;
+        m_font.DrawText(batch, label, textX, y + 15, tR, tG, tB, 1.0f);
+
+        // Sliders
+        if (static_cast<MenuItem>(i) == MenuItem::NoteSpeed || static_cast<MenuItem>(i) == MenuItem::Volume) {
+            float barW = 140.0f, barH = 6.0f;
             float barY = y + (itemH - barH) * 0.5f;
-            batch.Draw({valueX, barY}, {barW, barH}, {0.2f, 0.2f, 0.3f, 0.8f});
-            float fill = std::clamp((m_piano.GetNoteSpeed() - 50.0f) / 1950.0f, 0.0f, 1.0f);
-            batch.Draw({valueX, barY}, {barW * fill, barH}, {0.3f, 0.6f, 1.0f, 0.9f});
-            batch.Draw({valueX + barW * fill - 3, barY - 2}, {6, barH + 4}, {0.6f, 0.8f, 1.0f, 1.0f});
-            char buf[16]; snprintf(buf, sizeof(buf), "%d", (int)m_piano.GetNoteSpeed());
-            m_font.DrawText(batch, buf, valueX + barW + 8, barY - 2, 0.7f, 0.8f, 1.0f, 1.0f);
-        }
+            float fill = 0;
+            util::Color c = {1,1,1};
 
-        // Volume slider
-        if (static_cast<MenuItem>(i) == MenuItem::Volume) {
-            float barW = 130.0f, barH = 8.0f;
-            float barY = y + (itemH - barH) * 0.5f;
-            batch.Draw({valueX, barY}, {barW, barH}, {0.2f, 0.2f, 0.3f, 0.8f});
-            float fill = m_audio.GetVolume();
-            batch.Draw({valueX, barY}, {barW * fill, barH}, {1.0f, 0.8f, 0.2f, 0.9f});
-            batch.Draw({valueX + barW * fill - 3, barY - 2}, {6, barH + 4}, {1.0f, 0.9f, 0.5f, 1.0f});
-            char buf[16]; snprintf(buf, sizeof(buf), "%d%%", (int)(m_audio.GetVolume() * 100));
-            m_font.DrawText(batch, buf, valueX + barW + 8, barY - 2, 1.0f, 0.9f, 0.5f, 1.0f);
-        }
-
-        // Direction arrow + text
-        if (static_cast<MenuItem>(i) == MenuItem::Direction) {
-            float arrowX = valueX + 40.0f, arrowY = y + (itemH - 12) * 0.5f;
-            if (m_piano.IsFalling()) {
-                batch.Draw({arrowX, arrowY}, {12, 4}, {0.8f, 0.8f, 0.8f, 1});
-                batch.Draw({arrowX + 2, arrowY + 4}, {8, 4}, {0.8f, 0.8f, 0.8f, 1});
-                batch.Draw({arrowX + 4, arrowY + 8}, {4, 4}, {0.8f, 0.8f, 0.8f, 1});
+            if (static_cast<MenuItem>(i) == MenuItem::NoteSpeed) {
+                fill = std::clamp((m_piano.GetNoteSpeed() - 50.0f) / 1950.0f, 0.0f, 1.0f);
+                c = {0.3f, 0.6f, 1.0f};
             } else {
-                batch.Draw({arrowX + 4, arrowY}, {4, 4}, {0.8f, 0.8f, 0.8f, 1});
-                batch.Draw({arrowX + 2, arrowY + 4}, {8, 4}, {0.8f, 0.8f, 0.8f, 1});
-                batch.Draw({arrowX, arrowY + 8}, {12, 4}, {0.8f, 0.8f, 0.8f, 1});
+                fill = m_audio.GetVolume();
+                c = {1.0f, 0.8f, 0.2f};
             }
-            m_font.DrawText(batch, m_piano.IsFalling() ? "FALLING" : "RISING", arrowX + 18, arrowY, 0.8f, 0.8f, 0.8f, 1.0f);
+
+            drawRounded(valueX, barY, barW, barH, {0.1f, 0.1f, 0.15f, 1.0f});
+            drawRounded(valueX, barY, barW * fill, barH, {c.r, c.g, c.b, 1.0f});
+            
+            // Thumb
+            batch.SetBlendMode(true);
+            drawRounded(valueX + barW * fill - 5, barY - 4, 10, 14, {c.r, c.g, c.b, 0.8f});
+            batch.SetBlendMode(false);
+        }
+
+        // Direction Toggle
+        if (static_cast<MenuItem>(i) == MenuItem::Direction) {
+            bool falling = m_piano.IsFalling();
+            m_font.DrawText(batch, falling ? "FALLING" : "RISING", valueX + 10, y + 15, 0.7f, 0.7f, 0.7f, 1.0f);
         }
     }
 
@@ -371,16 +392,16 @@ std::wstring GameLoop::OpenFileDialog(const wchar_t* filter, const wchar_t* titl
 }
 
 void GameLoop::LoadMidiFile(const std::wstring& path) {
-    int len = WideCharToMultiByte(CP_UTF8, 0, path.c_str(), -1, nullptr, 0, nullptr, nullptr);
-    std::string narrow(len - 1, '\0');
-    WideCharToMultiByte(CP_UTF8, 0, path.c_str(), -1, narrow.data(), len, nullptr, nullptr);
-
-    if (m_midi.Load(narrow)) {
+    if (m_midi.Load(path)) {
         m_midiLoaded = true;
         m_sortedEvents = m_midi.GetAllEventsSorted();
         m_nextEventIdx = 0;
         m_playbackTime = 0;
         m_playing = true;
+        
+        int nlen = WideCharToMultiByte(CP_UTF8, 0, path.c_str(), -1, nullptr, 0, nullptr, nullptr);
+        std::string narrow(nlen - 1, '\0');
+        WideCharToMultiByte(CP_UTF8, 0, path.c_str(), -1, narrow.data(), nlen, nullptr, nullptr);
         m_midiFilePath = narrow;
         m_noteState.AllNotesOff(m_timer.Elapsed());
         m_audio.AllNotesOff();
@@ -432,7 +453,12 @@ void GameLoop::TryAutoLoadSoundFont() {
         try {
             for (auto& e : std::filesystem::directory_iterator(d)) {
                 if (e.path().extension() == ".sf2") {
-                    if (m_audio.LoadSoundFont(e.path().string())) return;
+                    // Convert to UTF-8 for FluidSynth
+                    std::wstring ws = e.path().wstring();
+                    int nlen = WideCharToMultiByte(CP_UTF8, 0, ws.c_str(), -1, nullptr, 0, nullptr, nullptr);
+                    std::string u8(nlen - 1, '\0');
+                    WideCharToMultiByte(CP_UTF8, 0, ws.c_str(), -1, u8.data(), nlen, nullptr, nullptr);
+                    if (m_audio.LoadSoundFont(u8)) return;
                 }
             }
         } catch (...) {}

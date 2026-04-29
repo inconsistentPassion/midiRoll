@@ -47,6 +47,26 @@ void SoundFontEngine::NoteOff(int ch, int note) {
     std::lock_guard<std::mutex> lk(m_eventMutex);
     m_eventQueue.push({AudioEvent::Type::NoteOff, ch, note, 0, 0});
 }
+void SoundFontEngine::ControlChange(int ch, int ctrl, int val) {
+    std::lock_guard<std::mutex> lk(m_eventMutex);
+    m_eventQueue.push({AudioEvent::Type::ControlChange, ch, ctrl, val, 0});
+}
+void SoundFontEngine::PitchBend(int ch, int val) {
+    std::lock_guard<std::mutex> lk(m_eventMutex);
+    m_eventQueue.push({AudioEvent::Type::PitchBend, ch, val, 0, 0});
+}
+void SoundFontEngine::ProgramChange(int ch, int prog) {
+    std::lock_guard<std::mutex> lk(m_eventMutex);
+    m_eventQueue.push({AudioEvent::Type::ProgramChange, ch, prog, 0, 0});
+}
+void SoundFontEngine::ChannelPressure(int ch, int val) {
+    std::lock_guard<std::mutex> lk(m_eventMutex);
+    m_eventQueue.push({AudioEvent::Type::ChannelPressure, ch, val, 0, 0});
+}
+void SoundFontEngine::KeyPressure(int ch, int note, int val) {
+    std::lock_guard<std::mutex> lk(m_eventMutex);
+    m_eventQueue.push({AudioEvent::Type::KeyPressure, ch, note, val, 0});
+}
 void SoundFontEngine::AllNotesOff() {
     std::lock_guard<std::mutex> lk(m_eventMutex);
     m_eventQueue.push({AudioEvent::Type::AllNotesOff, 0, 0, 0, 0});
@@ -64,10 +84,15 @@ void SoundFontEngine::ProcessEvents() {
     while (!q.empty()) {
         auto& e = q.front();
         switch (e.type) {
-        case AudioEvent::Type::NoteOn:  fluid_synth_noteon(m_synth, e.channel, e.note, e.velocity); break;
-        case AudioEvent::Type::NoteOff: fluid_synth_noteoff(m_synth, e.channel, e.note); break;
-        case AudioEvent::Type::AllNotesOff: fluid_synth_all_sounds_off(m_synth, -1); break;
-        case AudioEvent::Type::Volume: fluid_synth_set_gain(m_synth, e.volume); break;
+        case AudioEvent::Type::NoteOn:  fluid_synth_noteon(m_synth, e.channel, e.data1, e.data2); break;
+        case AudioEvent::Type::NoteOff: fluid_synth_noteoff(m_synth, e.channel, e.data1); break;
+        case AudioEvent::Type::ControlChange: fluid_synth_cc(m_synth, e.channel, e.data1, e.data2); break;
+        case AudioEvent::Type::PitchBend:     fluid_synth_pitch_bend(m_synth, e.channel, e.data1); break;
+        case AudioEvent::Type::ProgramChange: fluid_synth_program_change(m_synth, e.channel, e.data1); break;
+        case AudioEvent::Type::ChannelPressure: fluid_synth_channel_pressure(m_synth, e.channel, e.data1); break;
+        case AudioEvent::Type::KeyPressure:     fluid_synth_key_pressure(m_synth, e.channel, e.data1, e.data2); break;
+        case AudioEvent::Type::AllNotesOff:   fluid_synth_all_sounds_off(m_synth, -1); break;
+        case AudioEvent::Type::Volume:        fluid_synth_set_gain(m_synth, e.volume); break;
         }
         q.pop();
     }
@@ -108,6 +133,11 @@ void SoundFontEngine::NoteOn(int, int note, int velocity) {
 }
 
 void SoundFontEngine::NoteOff(int, int) {}
+void SoundFontEngine::ControlChange(int, int, int) {}
+void SoundFontEngine::PitchBend(int, int) {}
+void SoundFontEngine::ProgramChange(int, int) {}
+void SoundFontEngine::ChannelPressure(int, int) {}
+void SoundFontEngine::KeyPressure(int, int, int) {}
 void SoundFontEngine::AllNotesOff() { SineVoice::CleanupDoneVoices(); }
 void SoundFontEngine::SetVolume(float v) { m_volume = std::clamp(v, 0.f, 1.f); }
 void SoundFontEngine::ProcessEvents() { if (m_initialized) SineVoice::CleanupDoneVoices(); }

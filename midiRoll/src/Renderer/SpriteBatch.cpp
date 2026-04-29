@@ -114,6 +114,11 @@ bool SpriteBatch::Initialize(ID3D11Device* device) {
     blendDesc.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
     device->CreateBlendState(&blendDesc, m_blendState.GetAddressOf());
 
+    // Additive Blend State
+    blendDesc.RenderTarget[0].SrcBlend = D3D11_BLEND_SRC_ALPHA;
+    blendDesc.RenderTarget[0].DestBlend = D3D11_BLEND_ONE;
+    device->CreateBlendState(&blendDesc, m_additiveBlendState.GetAddressOf());
+
     D3D11_RASTERIZER_DESC rsDesc{};
     rsDesc.FillMode = D3D11_FILL_SOLID;
     rsDesc.CullMode = D3D11_CULL_NONE;
@@ -158,10 +163,11 @@ void SpriteBatch::Begin(ID3D11DeviceContext* ctx, uint32_t viewWidth, uint32_t v
     m_viewH = viewHeight;
     m_instances.clear();
     m_currentTex = m_whiteTexture.Get();
+    m_additive = false;
 }
 
 void SpriteBatch::Draw(util::Vec2 pos, util::Vec2 size, util::Vec4 color, util::Vec2 uvOrigin, util::Vec2 uvSize) {
-    Draw(pos, size, m_whiteTexture.Get(), uvOrigin, {uvOrigin.x + uvSize.x, uvOrigin.y + uvSize.y}, color);
+    Draw(pos, size, m_currentTex, uvOrigin, {uvOrigin.x + uvSize.x, uvOrigin.y + uvSize.y}, color);
 }
 
 void SpriteBatch::Draw(util::Vec2 pos, util::Vec2 size, ID3D11ShaderResourceView* srv, util::Vec2 uvOrigin, util::Vec2 uvEnd, util::Vec4 color) {
@@ -209,7 +215,7 @@ void SpriteBatch::Flush() {
     m_ctx->PSSetShaderResources(0, 1, &m_currentTex);
     m_ctx->PSSetSamplers(0, 1, m_samplerState.GetAddressOf());
     float bf[4] = {1,1,1,1};
-    m_ctx->OMSetBlendState(m_blendState.Get(), bf, 0xFFFFFFFF);
+    m_ctx->OMSetBlendState(m_additive ? m_additiveBlendState.Get() : m_blendState.Get(), bf, 0xFFFFFFFF);
     m_ctx->OMSetDepthStencilState(m_depthStencilState.Get(), 0);
     m_ctx->RSSetState(m_rasterizerState.Get());
     m_ctx->DrawIndexedInstanced(6, (UINT)m_instances.size(), 0, 0, 0);
@@ -221,6 +227,13 @@ void SpriteBatch::SetTexture(ID3D11ShaderResourceView* srv) {
     if (m_currentTex != tex) {
         Flush();
         m_currentTex = tex;
+    }
+}
+
+void SpriteBatch::SetBlendMode(bool additive) {
+    if (m_additive != additive) {
+        Flush();
+        m_additive = additive;
     }
 }
 

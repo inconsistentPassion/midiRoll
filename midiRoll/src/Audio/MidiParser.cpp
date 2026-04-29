@@ -2,6 +2,7 @@
 #include <fstream>
 #include <algorithm>
 #include <cstring>
+#include <filesystem>
 
 namespace pfd {
 
@@ -19,7 +20,17 @@ static uint32_t ReadVarLen(const uint8_t*& ptr) {
 }
 
 bool MidiParser::Load(const std::string& path) {
-    std::ifstream file(path, std::ios::binary | std::ios::ate);
+    std::ifstream file(std::filesystem::path(path), std::ios::binary | std::ios::ate);
+    if (!file.is_open()) return false;
+    size_t size = file.tellg();
+    file.seekg(0);
+    std::vector<uint8_t> data(size);
+    file.read(reinterpret_cast<char*>(data.data()), size);
+    return LoadFromMemory(data.data(), size);
+}
+
+bool MidiParser::Load(const std::wstring& path) {
+    std::ifstream file(std::filesystem::path(path), std::ios::binary | std::ios::ate);
     if (!file.is_open()) return false;
     size_t size = file.tellg();
     file.seekg(0);
@@ -36,7 +47,7 @@ bool MidiParser::LoadFromMemory(const uint8_t* data, size_t size) {
     if (memcmp(ptr, "MThd", 4) != 0) return false;
     ptr += 4;
     uint32_t headerLen = ReadU32BE(ptr); ptr += 4;
-    uint16_t format    = ReadU16BE(ptr); ptr += 2;
+    (void)ReadU16BE(ptr); ptr += 2; // format (unused)
     uint16_t numTracks = ReadU16BE(ptr); ptr += 2;
     m_ticksPerQuarter  = ReadU16BE(ptr); ptr += 2;
     (void)headerLen;
@@ -106,13 +117,17 @@ bool MidiParser::ParseTrack(const uint8_t*& ptr, const uint8_t* end, MidiTrack& 
             ev.data2 = *ptr++;
             ev.isNoteOn  = (type == 0x90 && ev.data2 > 0);
             ev.isNoteOff = (type == 0x80) || (type == 0x90 && ev.data2 == 0);
-            // Store absolute ticks in time field for now; converted to seconds later
             ev.time = (double)trackTickAccum;
             track.events.push_back(ev);
         } else if (type == 0xA0 || type == 0xB0 || type == 0xE0) {
-            ptr += 2;
+            ev.data1 = *ptr++;
+            ev.data2 = *ptr++;
+            ev.time = (double)trackTickAccum;
+            track.events.push_back(ev);
         } else if (type == 0xC0 || type == 0xD0) {
-            ptr += 1;
+            ev.data1 = *ptr++;
+            ev.time = (double)trackTickAccum;
+            track.events.push_back(ev);
         } else if (status == 0xFF) {
             runningStatus = 0; // Clear running status for meta events
             uint8_t metaType = *ptr++;
@@ -236,7 +251,7 @@ std::vector<MidiEvent> MidiParser::GetAllEventsSorted() const {
     std::vector<MidiEvent> all;
     for (const auto& track : m_tracks) {
         for (const auto& ev : track.events) {
-            if (ev.isNoteOn || ev.isNoteOff) all.push_back(ev);
+            all.push_back(ev);
         }
     }
     std::sort(all.begin(), all.end(), [](const MidiEvent& a, const MidiEvent& b) {

@@ -23,10 +23,11 @@ public:
     void Update(const NoteState& state, float currentTime, float dt);
     void Render(SpriteBatch& batch, const NoteState& state, const std::vector<Note>& midiNotes, float liveTime, float midiPlaybackTime, float dt);
 
-    // Settings
-    void SetNoteSpeed(float pxPerSec) { m_noteSpeed = pxPerSec; }
+    void SetNoteSpeed(float s) { m_noteSpeed = s; }
     float GetNoteSpeed() const { return m_noteSpeed; }
-    void SetPianoHeight(float h)      { m_pianoHeight = h; }
+
+    ID3D11ShaderResourceView* GetNoteTex() const { return m_noteTex.Get(); }
+    ID3D11ShaderResourceView* GetGradientTex() const { return m_gradientTex.Get(); }
     void SetChannelColor(int ch, util::Color c) { m_channelColors[ch] = c; }
 
     // Falling/Rising mode
@@ -61,13 +62,16 @@ private:
     float m_pianoHeight = 140.0f;
     float m_pianoY{};
     float m_noteSpeed = 400.0f; // pixels per second
-    bool  m_falling = true;     // true = notes fall from top, false = notes rise from piano
+    bool  m_falling = false;     // true = notes fall from top, false = notes rise from piano
     float m_whiteKeyW{};
     float m_blackKeyW{};
     float m_gap = 1.0f;
 
     std::array<util::Color, 16> m_channelColors{};
     std::vector<ImpactFlash> m_impacts;
+    ComPtr<ID3D11ShaderResourceView> m_noteTex;
+    ComPtr<ID3D11ShaderResourceView> m_gradientTex;
+    void CreateTextures(ID3D11Device* device);
 };
 
 } // namespace pfd

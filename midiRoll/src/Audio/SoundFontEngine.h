@@ -28,6 +28,11 @@ public:
 
     void NoteOn(int channel, int note, int velocity);
     void NoteOff(int channel, int note);
+    void ControlChange(int channel, int control, int value);
+    void PitchBend(int channel, int value);
+    void ProgramChange(int channel, int program);
+    void ChannelPressure(int channel, int value);
+    void KeyPressure(int channel, int note, int value);
     void AllNotesOff();
 
     void SetVolume(float vol);
@@ -37,10 +42,13 @@ public:
 
 private:
     struct AudioEvent {
-        enum class Type { NoteOn, NoteOff, AllNotesOff, Volume } type;
+        enum class Type { 
+            NoteOn, NoteOff, AllNotesOff, Volume, 
+            ControlChange, PitchBend, ProgramChange, ChannelPressure, KeyPressure 
+        } type;
         int   channel{};
-        int   note{};
-        int   velocity{};
+        int   data1{}; // note / control / program / pitch low
+        int   data2{}; // velocity / value / pitch high
         float volume{};
     };
 

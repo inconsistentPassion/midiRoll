@@ -9,13 +9,12 @@
 #include "Piano/NoteState.h"
 #include "Audio/SoundFontEngine.h"
 #include "Audio/MidiParser.h"
+#include "Util/Math.h"
+#include "Util/Color.h"
 #include "Input.h"
 #include <chrono>
 #include <string>
 
-namespace pfd {
-
-// High-resolution timer (inlined to avoid include issues)
 namespace util {
 class Timer {
 public:
@@ -46,6 +45,8 @@ private:
 };
 
 } // namespace util
+
+namespace pfd {
 
 // Menu state for the settings overlay
 enum class MenuItem : int {
