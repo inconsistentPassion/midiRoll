@@ -71,6 +71,15 @@ LRESULT CALLBACK Window::WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     case WM_KEYUP:
         if (self->m_keyCb) self->m_keyCb((int)wp, false);
         return 0;
+    case WM_LBUTTONDOWN:
+        if (self->m_mouseCb) self->m_mouseCb(LOWORD(lp), HIWORD(lp), true, false);
+        return 0;
+    case WM_LBUTTONUP:
+        if (self->m_mouseCb) self->m_mouseCb(LOWORD(lp), HIWORD(lp), false, false);
+        return 0;
+    case WM_MOUSEMOVE:
+        if (self->m_mouseCb) self->m_mouseCb(LOWORD(lp), HIWORD(lp), (wp & MK_LBUTTON) != 0, true);
+        return 0;
     case WM_DESTROY:
         PostQuitMessage(0);
         return 0;

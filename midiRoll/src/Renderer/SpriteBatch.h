@@ -6,33 +6,45 @@
 
 namespace pfd {
 
-// GPU vertex for a quad corner
 struct SpriteVertex {
     util::Vec2 position;
     util::Vec2 uv;
     util::Vec4 color;
 };
 
-// CPU-side instance data (one per quad)
 struct SpriteInstance {
-    util::Vec2 position;  // top-left in pixels
-    util::Vec2 size;      // width, height in pixels
-    util::Vec4 color;     // RGBA
-    util::Vec2 uvOrigin;  // UV top-left (0,0 default)
-    util::Vec2 uvSize;    // UV size (1,1 default)
+    util::Vec2 position;
+    util::Vec2 size;
+    util::Vec4 color;
+    util::Vec2 uvOrigin;
+    util::Vec2 uvSize;
 };
 
 class SpriteBatch {
 public:
     bool Initialize(ID3D11Device* device);
-    void Begin(ID3D11DeviceContext* ctx);
+    
+    // Setup for a new frame/pass
+    void Begin(ID3D11DeviceContext* ctx, uint32_t viewWidth, uint32_t viewHeight);
+    
+    // Draw using currently set texture
     void Draw(util::Vec2 pos, util::Vec2 size, util::Vec4 color,
               util::Vec2 uvOrigin = {0,0}, util::Vec2 uvSize = {1,1});
+    
+    // Draw with a specific texture (automatically flushes if texture changes)
+    void Draw(util::Vec2 pos, util::Vec2 size, ID3D11ShaderResourceView* srv,
+              util::Vec2 uvOrigin, util::Vec2 uvEnd, util::Vec4 color);
+              
     void DrawGradientV(util::Vec2 pos, util::Vec2 size,
                        util::Vec4 topColor, util::Vec4 bottomColor);
-    void End(ID3D11DeviceContext* ctx, uint32_t viewWidth, uint32_t viewHeight);
+                       
+    // Finalize rendering
+    void End();
 
-    size_t QuadCount() const { return m_instances.size(); }
+    // Force current batch to be rendered immediately
+    void Flush();
+    
+    void SetTexture(ID3D11ShaderResourceView* srv);
 
 private:
     struct CBPerFrame {
@@ -51,7 +63,12 @@ private:
     ComPtr<ID3D11BlendState>          m_blendState;
     ComPtr<ID3D11RasterizerState>     m_rasterizerState;
     ComPtr<ID3D11DepthStencilState>   m_depthStencilState;
+    ComPtr<ID3D11SamplerState>        m_samplerState;
     ComPtr<ID3D11ShaderResourceView>  m_whiteTexture;
+    
+    ID3D11DeviceContext*      m_ctx{};
+    ID3D11ShaderResourceView* m_currentTex{};
+    uint32_t m_viewW{}, m_viewH{};
 
     std::vector<SpriteInstance> m_instances;
     size_t m_maxInstances = 16384;

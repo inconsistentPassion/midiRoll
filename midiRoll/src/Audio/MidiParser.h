@@ -2,8 +2,17 @@
 #include <cstdint>
 #include <vector>
 #include <string>
+#include <map>
 
 namespace pfd {
+
+struct Note {
+    double start;
+    double end;
+    int    channel;
+    int    note;
+    int    velocity;
+};
 
 struct MidiEvent {
     double   time;      // absolute time in seconds
@@ -19,6 +28,13 @@ struct MidiTrack {
     std::vector<MidiEvent> events;
 };
 
+// Tempo change entry for the tempo map
+struct TempoEntry {
+    uint32_t tick;                  // absolute tick position
+    uint32_t usPerQuarter;          // microseconds per quarter note at this tick
+    double   secondsAtTick;         // precomputed absolute seconds at this tick
+};
+
 class MidiParser {
 public:
     bool Load(const std::string& path);
@@ -32,15 +48,31 @@ public:
     // Get all note events sorted by time (for playback)
     std::vector<MidiEvent> GetAllEventsSorted() const;
 
+    // Tempo map access
+    const std::vector<TempoEntry>& TempoMap() const { return m_tempoMap; }
+    const std::vector<Note>& Notes() const { return m_notes; }
+
 private:
-    bool ParseTrack(const uint8_t*& ptr, const uint8_t* end, MidiTrack& track);
+    bool ParseTrack(const uint8_t*& ptr, const uint8_t* end, MidiTrack& track, uint32_t& trackTickAccum);
+    void BuildTempoMap();
     void CalculateAbsoluteTimes();
+    void BuildNoteList();
+    double TicksToSeconds(uint32_t tick) const;
 
     std::vector<MidiTrack> m_tracks;
     uint16_t m_ticksPerQuarter = 480;
     uint16_t m_bpm = 120;
     double   m_duration = 0;
-    std::vector<uint32_t> m_tempoMap; // tick -> microseconds per quarter
+
+    // Tempo map: sorted by tick, maps tick -> microseconds per quarter
+    // All tempo events across all tracks (usually only track 0 in Format 1)
+    struct RawTempoEvent {
+        uint32_t tick;
+        uint32_t usPerQuarter;
+    };
+    std::vector<RawTempoEvent>  m_rawTempoEvents;
+    std::vector<TempoEntry>     m_tempoMap;
+    std::vector<Note> m_notes;
 };
 
 } // namespace pfd

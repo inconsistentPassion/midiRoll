@@ -3,6 +3,7 @@
 #include "../Renderer/SpriteBatch.h"
 #include "../Renderer/RenderTarget.h"
 #include "NoteState.h"
+#include "../Audio/MidiParser.h"
 #include "../Effects/ParticleSystem.h"
 #include "../Util/Color.h"
 #include <array>
@@ -20,12 +21,18 @@ public:
     bool Initialize(ID3D11Device* device, uint32_t viewW, uint32_t viewH);
     void Resize(uint32_t viewW, uint32_t viewH);
     void Update(const NoteState& state, float currentTime, float dt);
-    void Render(SpriteBatch& batch, const NoteState& state, float currentTime, float dt);
+    void Render(SpriteBatch& batch, const NoteState& state, const std::vector<Note>& midiNotes, float liveTime, float midiPlaybackTime, float dt);
 
     // Settings
     void SetNoteSpeed(float pxPerSec) { m_noteSpeed = pxPerSec; }
+    float GetNoteSpeed() const { return m_noteSpeed; }
     void SetPianoHeight(float h)      { m_pianoHeight = h; }
     void SetChannelColor(int ch, util::Color c) { m_channelColors[ch] = c; }
+
+    // Falling/Rising mode
+    void SetFalling(bool falling) { m_falling = falling; }
+    bool IsFalling() const { return m_falling; }
+    void ToggleDirection() { m_falling = !m_falling; }
 
     // For particle effects
     float GetKeyX(int note) const;
@@ -37,7 +44,7 @@ public:
 private:
     void ComputeKeyLayout();
     void DrawPiano(SpriteBatch& batch, const NoteState& state, float currentTime);
-    void DrawFallingNotes(SpriteBatch& batch, const NoteState& state, float currentTime);
+    void DrawNotes(SpriteBatch& batch, const NoteState& state, float currentTime);
     void DrawImpactFlashes(SpriteBatch& batch, float currentTime);
     void DrawAtmosphere(SpriteBatch& batch, const NoteState& state);
     void DrawSaber(SpriteBatch& batch, const NoteState& state, float currentTime);
@@ -54,6 +61,7 @@ private:
     float m_pianoHeight = 140.0f;
     float m_pianoY{};
     float m_noteSpeed = 400.0f; // pixels per second
+    bool  m_falling = true;     // true = notes fall from top, false = notes rise from piano
     float m_whiteKeyW{};
     float m_blackKeyW{};
     float m_gap = 1.0f;

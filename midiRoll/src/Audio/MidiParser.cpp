@@ -43,27 +43,50 @@ bool MidiParser::LoadFromMemory(const uint8_t* data, size_t size) {
 
     m_tracks.clear();
     m_tracks.resize(numTracks);
+    m_rawTempoEvents.clear();
 
+    // Parse all tracks, collecting tempo events with their absolute tick positions
     for (uint16_t t = 0; t < numTracks; t++) {
         if (ptr + 8 > data + size) break;
         if (memcmp(ptr, "MTrk", 4) != 0) break;
         ptr += 4;
         uint32_t trackLen = ReadU32BE(ptr); ptr += 4;
         const uint8_t* trackEnd = ptr + trackLen;
-        ParseTrack(ptr, trackEnd, m_tracks[t]);
+        uint32_t trackTickAccum = 0;
+        ParseTrack(ptr, trackEnd, m_tracks[t], trackTickAccum);
         ptr = trackEnd;
     }
 
+    BuildTempoMap();
     CalculateAbsoluteTimes();
+    BuildNoteList();
     return true;
 }
 
-bool MidiParser::ParseTrack(const uint8_t*& ptr, const uint8_t* end, MidiTrack& track) {
+void MidiParser::BuildNoteList() {
+    m_notes.clear();
+    for (const auto& track : m_tracks) {
+        std::map<int, MidiEvent> active;
+        for (const auto& ev : track.events) {
+            if (ev.isNoteOn) {
+                active[ev.data1] = ev;
+            } else if (ev.isNoteOff) {
+                auto it = active.find(ev.data1);
+                if (it != active.end()) {
+                    m_notes.push_back({it->second.time, ev.time, it->second.status & 0x0F, ev.data1, it->second.data2});
+                    active.erase(it);
+                }
+            }
+        }
+    }
+}
+
+bool MidiParser::ParseTrack(const uint8_t*& ptr, const uint8_t* end, MidiTrack& track, uint32_t& trackTickAccum) {
     uint8_t runningStatus = 0;
 
     while (ptr < end) {
         uint32_t deltaTicks = ReadVarLen(ptr);
-        (void)deltaTicks; // we'll convert to seconds later via tempo map
+        trackTickAccum += deltaTicks;
 
         uint8_t status = *ptr;
         if (status & 0x80) {
@@ -83,20 +106,21 @@ bool MidiParser::ParseTrack(const uint8_t*& ptr, const uint8_t* end, MidiTrack& 
             ev.data2 = *ptr++;
             ev.isNoteOn  = (type == 0x90 && ev.data2 > 0);
             ev.isNoteOff = (type == 0x80) || (type == 0x90 && ev.data2 == 0);
-            // Store raw ticks in time for now, convert later
-            ev.time = (double)deltaTicks;
+            // Store absolute ticks in time field for now; converted to seconds later
+            ev.time = (double)trackTickAccum;
             track.events.push_back(ev);
         } else if (type == 0xA0 || type == 0xB0 || type == 0xE0) {
             ptr += 2;
         } else if (type == 0xC0 || type == 0xD0) {
             ptr += 1;
         } else if (status == 0xFF) {
+            runningStatus = 0; // Clear running status for meta events
             uint8_t metaType = *ptr++;
             uint32_t metaLen = ReadVarLen(ptr);
             if (metaType == 0x51 && metaLen == 3) {
                 // Tempo: microseconds per quarter
                 uint32_t uspq = (ptr[0]<<16)|(ptr[1]<<8)|ptr[2];
-                m_tempoMap.push_back(uspq);
+                m_rawTempoEvents.push_back({trackTickAccum, uspq});
             }
             if (metaType == 0x03) {
                 track.name = std::string((const char*)ptr, metaLen);
@@ -114,18 +138,88 @@ bool MidiParser::ParseTrack(const uint8_t*& ptr, const uint8_t* end, MidiTrack& 
     return true;
 }
 
-void MidiParser::CalculateAbsoluteTimes() {
-    // Default tempo: 120 BPM = 500000 us per quarter
-    uint32_t uspq = 500000;
-    double secondsPerTick = (double)uspq / (1000000.0 * m_ticksPerQuarter);
+void MidiParser::BuildTempoMap() {
+    m_tempoMap.clear();
 
+    // Sort raw tempo events by tick
+    std::sort(m_rawTempoEvents.begin(), m_rawTempoEvents.end(),
+        [](const RawTempoEvent& a, const RawTempoEvent& b) { return a.tick < b.tick; });
+
+    // Default tempo: 120 BPM = 500000 us/quarter
+    uint32_t defaultUsq = 500000;
+
+    // If no tempo events, add one at tick 0
+    if (m_rawTempoEvents.empty()) {
+        m_rawTempoEvents.push_back({0, defaultUsq});
+    }
+
+    // If first tempo event is not at tick 0, insert default tempo at tick 0
+    if (m_rawTempoEvents.front().tick != 0) {
+        m_rawTempoEvents.insert(m_rawTempoEvents.begin(), {0, defaultUsq});
+    }
+
+    // Remove duplicate ticks (keep first)
+    auto last = std::unique(m_rawTempoEvents.begin(), m_rawTempoEvents.end(),
+        [](const RawTempoEvent& a, const RawTempoEvent& b) { return a.tick == b.tick; });
+    m_rawTempoEvents.erase(last, m_rawTempoEvents.end());
+
+    // Build the tempo map with precomputed absolute seconds
+    double cumulativeSeconds = 0.0;
+    uint32_t prevTick = 0;
+    uint32_t prevUsq = m_rawTempoEvents[0].usPerQuarter;
+
+    for (size_t i = 0; i < m_rawTempoEvents.size(); i++) {
+        auto& entry = m_rawTempoEvents[i];
+
+        // Accumulate seconds from previous tempo entry to this one
+        if (i > 0) {
+            uint32_t tickDelta = entry.tick - prevTick;
+            double secondsPerTick = (double)prevUsq / (1000000.0 * m_ticksPerQuarter);
+            cumulativeSeconds += tickDelta * secondsPerTick;
+        }
+
+        m_tempoMap.push_back({entry.tick, entry.usPerQuarter, cumulativeSeconds});
+
+        prevTick = entry.tick;
+        prevUsq = entry.usPerQuarter;
+    }
+
+    // Set BPM from first tempo
+    m_bpm = (uint16_t)(60000000.0 / m_rawTempoEvents[0].usPerQuarter);
+}
+
+double MidiParser::TicksToSeconds(uint32_t tick) const {
+    if (m_tempoMap.empty()) {
+        // Fallback: 120 BPM
+        return (double)tick * 500000.0 / (1000000.0 * m_ticksPerQuarter);
+    }
+
+    // Find the last tempo entry at or before this tick
+    // Binary search for efficiency
+    size_t lo = 0, hi = m_tempoMap.size();
+    while (lo < hi) {
+        size_t mid = lo + (hi - lo) / 2;
+        if (m_tempoMap[mid].tick <= tick) {
+            lo = mid + 1;
+        } else {
+            hi = mid;
+        }
+    }
+    // lo is now one past the last entry <= tick, so the relevant entry is lo-1
+    size_t idx = (lo > 0) ? lo - 1 : 0;
+
+    const auto& entry = m_tempoMap[idx];
+    uint32_t tickDelta = tick - entry.tick;
+    double secondsPerTick = (double)entry.usPerQuarter / (1000000.0 * m_ticksPerQuarter);
+    return entry.secondsAtTick + tickDelta * secondsPerTick;
+}
+
+void MidiParser::CalculateAbsoluteTimes() {
+    // Convert all event times from absolute ticks to seconds
     for (auto& track : m_tracks) {
-        double absTime = 0;
-        uint32_t tempoIdx = 0;
         for (auto& ev : track.events) {
-            double deltaTicks = ev.time; // stored as raw ticks
-            absTime += deltaTicks * secondsPerTick;
-            ev.time = absTime;
+            uint32_t absTick = (uint32_t)ev.time;
+            ev.time = TicksToSeconds(absTick);
         }
     }
 
@@ -136,17 +230,12 @@ void MidiParser::CalculateAbsoluteTimes() {
             m_duration = std::max(m_duration, track.events.back().time);
         }
     }
-
-    // Estimate BPM from first tempo event
-    if (!m_tempoMap.empty()) {
-        m_bpm = (uint16_t)(60000000.0 / m_tempoMap[0]);
-    }
 }
 
 std::vector<MidiEvent> MidiParser::GetAllEventsSorted() const {
     std::vector<MidiEvent> all;
-    for (auto& track : m_tracks) {
-        for (auto& ev : track.events) {
+    for (const auto& track : m_tracks) {
+        for (const auto& ev : track.events) {
             if (ev.isNoteOn || ev.isNoteOff) all.push_back(ev);
         }
     }
