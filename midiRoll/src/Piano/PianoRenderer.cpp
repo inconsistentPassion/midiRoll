@@ -301,7 +301,6 @@ void PianoRenderer::DrawPiano(SpriteBatch& batch, const NoteState& state, float 
     batch.SetBlendMode(false);
 }
 
-void PianoRenderer::DrawNotes(SpriteBatch&, const NoteState&, float) {}
 
 float PianoRenderer::GetKeyX(int note) const {
     if (note < 0 || note >= 128) return 0;

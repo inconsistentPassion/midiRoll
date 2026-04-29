@@ -44,8 +44,8 @@ bool FontRenderer::BuildAtlas(const unsigned char* ttfData) {
     stbtt_GetFontVMetrics(&font, &ascent, &descent, &lineGap);
     m_lineHeight = (ascent - descent + lineGap) * scale;
 
-    m_atlasW = 1024;
-    m_atlasH = 256;
+    m_atlasW = 2048;
+    m_atlasH = 512;
     std::vector<unsigned char> bitmap(m_atlasW * m_atlasH, 0);
 
     int penX = 1;
@@ -119,14 +119,15 @@ bool FontRenderer::BuildAtlas(const unsigned char* ttfData) {
 bool FontRenderer::Initialize(ID3D11Device* device, ID3D11DeviceContext* ctx, float fontSize) {
     m_device = device;
     m_ctx = ctx;
-    m_fontSize = fontSize;
+    m_fontSize = fontSize > 0 ? fontSize : 48.0f;
+    m_baseScale = 20.0f / m_fontSize; // keep old 20px scale factors working
     return LoadFont();
 }
 
 void FontRenderer::DrawText(SpriteBatch& batch, const std::string& text, float x, float y,
                              float r, float g, float b, float scale) {
     if (!m_atlasSRV) return;
-    float s = scale * m_scale;
+    float s = scale * m_scale * m_baseScale;
     float cx = x;
 
     for (char c : text) {
@@ -152,7 +153,7 @@ void FontRenderer::DrawText(SpriteBatch& batch, const std::string& text, float x
 
 float FontRenderer::GetTextWidth(const std::string& text, float scale) {
     float w = 0;
-    float s = scale * m_scale;
+    float s = scale * m_scale * m_baseScale;
     for (char c : text) {
         int ch = (unsigned char)c;
         auto it = m_glyphs.find(ch);

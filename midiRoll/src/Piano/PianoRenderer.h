@@ -1,7 +1,6 @@
 #pragma once
 #include "../Renderer/D3DContext.h"
 #include "../Renderer/SpriteBatch.h"
-#include "../Renderer/RenderTarget.h"
 #include "NoteState.h"
 #include "../Audio/MidiParser.h"
 #include "../Effects/ParticleSystem.h"
@@ -39,13 +38,13 @@ public:
     float GetKeyX(int note) const;
     float GetKeyWidth(int note) const;
     float GetPianoY() const { return m_pianoY; }
+    float GetPianoHeight() const { return m_pianoHeight; }
 
     ParticleSystem particles;
 
 private:
     void ComputeKeyLayout();
     void DrawPiano(SpriteBatch& batch, const NoteState& state, float currentTime);
-    void DrawNotes(SpriteBatch& batch, const NoteState& state, float currentTime);
     void DrawImpactFlashes(SpriteBatch& batch, float currentTime);
     void DrawAtmosphere(SpriteBatch& batch, const NoteState& state);
     void DrawSaber(SpriteBatch& batch, const NoteState& state, float currentTime);

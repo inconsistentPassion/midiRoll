@@ -36,6 +36,7 @@ public:
     
     const std::vector<ActiveVisualNote>& GetVisualNotes() const { return m_visualNotes; }
     void UpdateVisualNotes(double currentTime);
+    void ClearVisualNotes(); // Wipes all rendering bars immediately
 
     const std::vector<int>& RecentNoteOns() const { return m_recentOns; }
     void ClearRecentEvents() { m_recentOns.clear(); }

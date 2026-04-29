@@ -16,6 +16,7 @@ public:
     float GetTextWidth(const std::string& text, float scale = 1.0f);
     float GetLineHeight() const { return m_lineHeight * m_scale; }
     void SetScale(float s) { m_scale = s; }
+    float GetBaseScale() const { return m_baseScale; }
     ID3D11ShaderResourceView* GetTexture() const { return m_atlasSRV; }
 
 private:
@@ -35,6 +36,7 @@ private:
     int   m_atlasW{}, m_atlasH{};
     float m_lineHeight{};
     float m_scale{1.0f};
+    float m_baseScale{1.0f}; // compensation for font size change
     float m_fontSize{};
 
     bool LoadFont();
