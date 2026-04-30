@@ -26,6 +26,7 @@ struct Context {
     Input*           input{};
     MidiInput*       midiInput{};
     util::Timer*     timer{};
+    float            deltaTime{}; // Master frame delta (seconds)
 
     // Paths (persisted across states)
     std::string      midiFilePath;

@@ -124,8 +124,8 @@ void NoteState::UpdateVisualNotes(double currentTime) {
     for (size_t readIdx = 0; readIdx < m_visualNotes.size(); ++readIdx) {
         auto& vn = m_visualNotes[readIdx];
         
-        // Keep active notes or recently deactivated ones (within 6 seconds)
-        if (vn.active || (currentTime - vn.offTime <= 6.0)) {
+        // Optimize: skip off-screen notes or very old ones quickly (within 4 seconds)
+        if (vn.active || (currentTime - vn.offTime <= 4.0)) {
             if (readIdx != writeIdx) {
                 m_visualNotes[writeIdx] = std::move(vn);
             }

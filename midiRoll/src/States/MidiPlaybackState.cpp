@@ -35,6 +35,7 @@ void MidiPlaybackState::Enter(Context& ctx) {
         m_playing = true;
         m_clockAnchor = Clock::now();
         m_timeAtAnchor = -3.0; // 3-second lead-in before first note
+        ctx.piano->UpdateGpuNotes(ctx.d3d->Device(), ctx.midi->Notes());
     }
 }
 
@@ -62,6 +63,7 @@ void MidiPlaybackState::LoadMidiFile(Context& ctx, const std::wstring& path) {
         std::string narrow(nlen - 1, '\0');
         WideCharToMultiByte(CP_UTF8, 0, path.c_str(), -1, narrow.data(), nlen, nullptr, nullptr);
         ctx.midiFilePath = narrow;
+        ctx.piano->UpdateGpuNotes(ctx.d3d->Device(), ctx.midi->Notes());
     }
 }
 
@@ -211,7 +213,8 @@ void MidiPlaybackState::Render(Context& ctx) {
 
     if (ctx.midiLoaded) {
         ctx.piano->Render(batch, *ctx.noteState, ctx.midi->Notes(),
-                          (float)m_playbackTime, (float)m_playbackTime, (float)ctx.timer->Delta());
+                          (float)m_playbackTime, (float)m_playbackTime, ctx.deltaTime,
+                          ctx.d3d->Context());
         if (m_showUI) {
             DrawTimeline(ctx);
             DrawControls(ctx);

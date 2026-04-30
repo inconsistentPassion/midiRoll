@@ -2,8 +2,9 @@
 #include "../Renderer/D3DContext.h"
 #include "../Renderer/SpriteBatch.h"
 #include "NoteState.h"
+#include "GPUNoteSystem.h"
 #include "../Audio/MidiParser.h"
-#include "../Effects/ParticleSystem.h"
+#include "../Effects/GPUParticleSystem.h" 
 #include "../Util/Color.h"
 #include <array>
 
@@ -20,7 +21,9 @@ public:
     bool Initialize(ID3D11Device* device, uint32_t viewW, uint32_t viewH);
     void Resize(uint32_t viewW, uint32_t viewH);
     void Update(NoteState& state, float currentTime, float dt);
-    void Render(SpriteBatch& batch, const NoteState& state, const std::vector<Note>& midiNotes, float liveTime, float midiPlaybackTime, float dt);
+    void Render(SpriteBatch& batch, const NoteState& state, const std::vector<Note>& midiNotes,
+                float liveTime, float midiPlaybackTime, float dt,
+                ID3D11DeviceContext* d3dCtx);  // Added d3dCtx for GPU particles
 
     void SetNoteSpeed(float s) { m_noteSpeed = s; }
     float GetNoteSpeed() const { return m_noteSpeed; }
@@ -39,17 +42,25 @@ public:
     // For particle effects
     float GetKeyX(int note) const;
     float GetKeyWidth(int note) const;
+    bool  IsBlack(int note) const { return m_keys[note].isBlack; }
+    util::Color GetChannelColor(int ch) const { return m_channelColors[ch % 64]; }
     float GetPianoY() const { return m_pianoY; }
     float GetPianoHeight() const { return m_pianoHeight; }
 
-    ParticleSystem particles;
+    void UpdateGpuNotes(ID3D11Device* device, const std::vector<Note>& notes);
 
+    GPUParticleSystem particles;
+    GPUNoteSystem     gpuNotes; 
 private:
     void ComputeKeyLayout();
     void DrawPiano(SpriteBatch& batch, const NoteState& state, float currentTime);
     void DrawImpactFlashes(SpriteBatch& batch, float currentTime);
     void DrawAtmosphere(SpriteBatch& batch, const NoteState& state);
     void DrawSaber(SpriteBatch& batch, const NoteState& state, float currentTime);
+
+    // Spatial culling helpers
+    bool IsMidiNoteVisible(const Note& note, float midiPlaybackTime, float& outY, float& outH) const;
+    bool IsLiveNoteVisible(const ActiveVisualNote& vn, float liveTime, float& outY, float& outH) const;
 
     // Key layout
     struct KeyInfo {

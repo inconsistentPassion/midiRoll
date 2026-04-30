@@ -75,6 +75,7 @@ void GameLoop::Run() {
         m_window.PumpMessages();
 
         double dt = m_timer.Delta();
+        m_ctx.deltaTime = (float)dt;
 
         // Auto-reconnect: if a device was selected but is no longer open, retry
         PollMidiReconnect(dt);

@@ -105,7 +105,7 @@ void FreePlayState::Render(Context& ctx) {
         batch.Draw({0, 0}, {(float)vw, (float)vh}, {0.02f, 0.02f, 0.04f, 1.0f});
     }
 
-    ctx.piano->Render(batch, *ctx.noteState, {}, currentTime, currentTime, (float)ctx.timer->Delta());
+    ctx.piano->Render(batch, *ctx.noteState, {}, currentTime, currentTime, ctx.deltaTime, ctx.d3d->Context());
 
     if (m_showHUD) DrawHUD(ctx);
 
