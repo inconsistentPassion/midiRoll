@@ -32,7 +32,7 @@ void MainMenuState::CycleMidiDevice(Context& ctx) {
     if (count == 0) {
         m_midiDeviceIndex = -1;
         ctx.midiInput->Close();
-        m_items[3].label = "MIDI: none";
+        m_items[4].label = "MIDI: none";
         return;
     }
     
@@ -41,17 +41,29 @@ void MainMenuState::CycleMidiDevice(Context& ctx) {
     
     if (m_midiDeviceIndex < 0) {
         ctx.midiInput->Close();
-        m_items[3].label = "MIDI: none";
+        m_items[4].label = "MIDI: none";
     } else {
         bool ok = ctx.midiInput->Open(m_midiDeviceIndex);
         if (ok) {
-            m_items[3].label = BuildMidiLabel(m_midiDeviceIndex);
+            m_items[4].label = BuildMidiLabel(m_midiDeviceIndex);
         } else {
             // Device listed but couldn't open — skip to next
             // Recursively try the next device
             CycleMidiDevice(ctx);
         }
     }
+}
+
+void MainMenuState::CycleSaberColor(Context& ctx) {
+    static const int colors[] = {15, 1, 2, 3, 6, 4, 5};
+    static const char* names[] = {"WHITE", "RED", "GREEN", "BLUE", "CYAN", "YELLOW", "MAGENTA"};
+    static int idx = 0;
+    
+    idx = (idx + 1) % 7;
+    m_saberColorIdx = colors[idx];
+    ctx.piano->SetSaberColor(m_saberColorIdx);
+    
+    m_items[3].label = std::string("SABER: ") + names[idx];
 }
 
 // ---------------------------------------------------------------------------
@@ -71,10 +83,10 @@ void MainMenuState::Enter(Context& ctx) {
     // Sync MIDI button label with whatever device is currently open
     if (ctx.midiInput && ctx.midiInput->IsOpen()) {
         m_midiDeviceIndex = ctx.midiInput->DeviceIndex();
-        m_items[3].label = BuildMidiLabel(m_midiDeviceIndex);
+        m_items[4].label = BuildMidiLabel(m_midiDeviceIndex);
     } else {
         m_midiDeviceIndex = -1;
-        m_items[3].label = "MIDI: none";
+        m_items[4].label = "MIDI: none";
     }
 }
 
@@ -312,9 +324,24 @@ Transition MainMenuState::OnKey(Context& ctx, int key, bool down) {
     if (key == VK_RETURN || key == VK_SPACE) {
         // TODO: Play select sound effect here
         switch (m_items[m_selected].action) {
-        case MenuAction::FreePlay:    return {StateID::FreePlay,     true, true};
-        case MenuAction::MidiPlayback:return {StateID::MidiPlayback, true, true};
+        case MenuAction::FreePlay:    return {StateID::FreePlay, true, true};
+        case MenuAction::MidiPlayback: {
+            // Prompt for MIDI file before entering playback
+            auto path = OpenMidiFileDialog(ctx.window->Handle());
+            if (!path.empty()) {
+                if (ctx.midi->Load(path)) {
+                    ctx.midiLoaded = true;
+                    int nlen = WideCharToMultiByte(CP_UTF8, 0, path.c_str(), -1, nullptr, 0, nullptr, nullptr);
+                    std::string narrow(nlen - 1, '\0');
+                    WideCharToMultiByte(CP_UTF8, 0, path.c_str(), -1, narrow.data(), nlen, nullptr, nullptr);
+                    ctx.midiFilePath = narrow;
+                    return {StateID::MidiPlayback, true, true};
+                }
+            }
+            return Transition::Handled();
+        }
         case MenuAction::SoundFont:   OpenSoundFontDialog(ctx); return Transition::Handled();
+        case MenuAction::SaberColor:  CycleSaberColor(ctx); return Transition::Handled();
         case MenuAction::MidiDevice:  CycleMidiDevice(ctx); return Transition::Handled();
         case MenuAction::Quit:        ctx.window->RequestClose(); return Transition::Handled();
         default: break;
@@ -346,9 +373,23 @@ Transition MainMenuState::OnMouse(Context& ctx, int x, int y, bool down, bool mo
 
     if (down && m_hovered >= 0) {
         switch (m_items[m_hovered].action) {
-        case MenuAction::FreePlay:    return {StateID::FreePlay,     true, true};
-        case MenuAction::MidiPlayback:return {StateID::MidiPlayback, true, true};
+        case MenuAction::FreePlay:    return {StateID::FreePlay, true, true};
+        case MenuAction::MidiPlayback: {
+            auto path = OpenMidiFileDialog(ctx.window->Handle());
+            if (!path.empty()) {
+                if (ctx.midi->Load(path)) {
+                    ctx.midiLoaded = true;
+                    int nlen = WideCharToMultiByte(CP_UTF8, 0, path.c_str(), -1, nullptr, 0, nullptr, nullptr);
+                    std::string narrow(nlen - 1, '\0');
+                    WideCharToMultiByte(CP_UTF8, 0, path.c_str(), -1, narrow.data(), nlen, nullptr, nullptr);
+                    ctx.midiFilePath = narrow;
+                    return {StateID::MidiPlayback, true, true};
+                }
+            }
+            return Transition::Handled();
+        }
         case MenuAction::SoundFont:   OpenSoundFontDialog(ctx); return Transition::Handled();
+        case MenuAction::SaberColor:  CycleSaberColor(ctx); return Transition::Handled();
         case MenuAction::MidiDevice:  CycleMidiDevice(ctx); return Transition::Handled();
         case MenuAction::Quit:        ctx.window->RequestClose(); return Transition::Handled();
         default: break;

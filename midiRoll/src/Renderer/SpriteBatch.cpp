@@ -131,9 +131,9 @@ bool SpriteBatch::Initialize(ID3D11Device* device) {
     // Sampler state - use anisotropic filtering for better quality
     D3D11_SAMPLER_DESC sampDesc{};
     sampDesc.Filter         = D3D11_FILTER_ANISOTROPIC;
-    sampDesc.AddressU       = D3D11_TEXTURE_ADDRESS_CLAMP;
-    sampDesc.AddressV       = D3D11_TEXTURE_ADDRESS_CLAMP;
-    sampDesc.AddressW       = D3D11_TEXTURE_ADDRESS_CLAMP;
+    sampDesc.AddressU       = D3D11_TEXTURE_ADDRESS_WRAP;
+    sampDesc.AddressV       = D3D11_TEXTURE_ADDRESS_WRAP;
+    sampDesc.AddressW       = D3D11_TEXTURE_ADDRESS_WRAP;
     sampDesc.ComparisonFunc = D3D11_COMPARISON_NEVER;
     sampDesc.MinLOD         = 0;
     sampDesc.MaxLOD         = D3D11_FLOAT32_MAX;

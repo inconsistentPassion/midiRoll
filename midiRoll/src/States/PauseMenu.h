@@ -133,7 +133,7 @@ public:
 
         // Keyboard shortcuts hint at bottom
         float footerY = panelY + panelH - 30;
-        const char* hint = "\u2191\u2193 Navigate  |  Enter Select  |  Esc Back";
+        const char* hint = "Up/Down Navigate  |  Enter Select  |  Esc Back";
         float hw = font.GetTextWidth(hint, 0.55f);
         font.DrawText(batch, hint, panelX + (panelW - hw) * 0.5f, footerY,
                       0.45f, 0.45f, 0.55f, 0.55f);

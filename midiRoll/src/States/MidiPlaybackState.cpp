@@ -34,7 +34,7 @@ void MidiPlaybackState::Enter(Context& ctx) {
         m_sortedEvents = ctx.midi->GetAllEventsSorted();
         m_playing = true;
         m_clockAnchor = Clock::now();
-        m_timeAtAnchor = 0;
+        m_timeAtAnchor = -3.0; // 3-second lead-in before first note
     }
 }
 
@@ -52,7 +52,7 @@ void MidiPlaybackState::LoadMidiFile(Context& ctx, const std::wstring& path) {
         m_playbackTick = 0;
         m_playing = true;
         m_clockAnchor  = Clock::now();
-        m_timeAtAnchor = 0;
+        m_timeAtAnchor = -3.0; // 3-second lead-in before first note
 
         ctx.audio->AllNotesOff();
         ctx.noteState->AllNotesOff(ctx.timer->Elapsed());
@@ -136,14 +136,20 @@ Transition MidiPlaybackState::Update(Context& ctx, double dt) {
         using Dur = std::chrono::duration<double>;
         double wallElapsed = Dur(Clock::now() - m_clockAnchor).count();
         m_playbackTime = m_timeAtAnchor + wallElapsed * m_playbackSpeed;
-        m_playbackTick = ctx.midi->SecondsToTicks(m_playbackTime);
+        // Only compute tick from non-negative playback time
+        m_playbackTick = (m_playbackTime >= 0.0)
+            ? ctx.midi->SecondsToTicks(m_playbackTime)
+            : 0;
 
-        if (m_playbackTime >= ctx.midi->Duration()) {
+        // Use m_pianoY-based lookahead estimate as tail buffer so notes clear screen
+        static constexpr double TAIL_BUFFER = 3.0;  // seconds after last note
+
+        if (m_playbackTime >= ctx.midi->Duration() + TAIL_BUFFER) {
             if (m_loop) {
-                SeekTo(ctx, 0);
+                SeekTo(ctx, -3.0); // lead-in on loop: notes scroll in before playing
             } else {
                 m_playing = false;
-                m_playbackTime = ctx.midi->Duration();
+                m_playbackTime = ctx.midi->Duration() + TAIL_BUFFER;
             }
         }
 
@@ -246,8 +252,12 @@ void MidiPlaybackState::DrawTimeline(Context& ctx) {
     float tlY = (float)vh - ctx.piano->GetPianoHeight() - 35.0f;
     float tlH = 8.0f;
 
-    float progress = (ctx.midi->Duration() > 0)
-        ? (float)(m_playbackTime / ctx.midi->Duration()) : 0;
+    float leadIn = 3.0f;
+    float tailBuf = 3.0f;
+    float totalDuration = (float)ctx.midi->Duration() + leadIn + tailBuf;
+    
+    float progress = (totalDuration > 0)
+        ? (float)((m_playbackTime + leadIn) / totalDuration) : 0;
     progress = std::clamp(progress, 0.0f, 1.0f);
 
     batch.Draw({tlX, tlY}, {tlW, tlH}, {0.1f, 0.1f, 0.15f, 0.8f});
@@ -310,7 +320,13 @@ Transition MidiPlaybackState::OnKey(Context& ctx, int key, bool down) {
     // Pause menu takes priority
     if (m_pause.IsOpen()) {
         PauseAction action = m_pause.OnKey(key, down);
-        if (action == PauseAction::Resume) return {};
+        if (action == PauseAction::Resume) {
+            m_pause.Close();
+            m_playing = true;
+            m_clockAnchor = Clock::now();
+            m_timeAtAnchor = m_playbackTime;
+            return Transition::Handled();
+        }
         if (action == PauseAction::ToggleSpeed) {
             static const double speeds[] = { 0.5, 0.75, 1.0, 1.25, 1.5, 2.0 };
             int current = 2;
@@ -329,7 +345,7 @@ Transition MidiPlaybackState::OnKey(Context& ctx, int key, bool down) {
         }
         if (action == PauseAction::ToggleMode) {
             ctx.piano->ToggleDirection();
-            m_pause.SetLabel(3, ctx.piano->IsFalling() ? "MODE: FALLING" : "MODE: RISING");
+            m_pause.SetLabel(4, ctx.piano->IsFalling() ? "MODE: FALLING" : "MODE: RISING");
             return Transition::Handled();
         }
         if (action == PauseAction::BackToMenu) return {StateID::MainMenu, true, true};
@@ -343,8 +359,9 @@ Transition MidiPlaybackState::OnKey(Context& ctx, int key, bool down) {
     if (key == VK_ESCAPE) {
         char sbuf[32]; std::snprintf(sbuf, sizeof(sbuf), "SPEED: %.2fx", m_playbackSpeed);
         m_pause.SetLabel(1, sbuf);
-        m_pause.SetLabel(3, ctx.piano->IsFalling() ? "MODE: FALLING" : "MODE: RISING");
+        m_pause.SetLabel(4, ctx.piano->IsFalling() ? "MODE: FALLING" : "MODE: RISING");
         m_pause.Open();
+        m_playing = false; // Pause playback
         ctx.audio->AllNotesOff();
         return Transition::Handled();
     }
@@ -385,7 +402,13 @@ Transition MidiPlaybackState::OnMouse(Context& ctx, int x, int y, bool down, boo
     // Pause menu takes priority
     if (m_pause.IsOpen()) {
         PauseAction action = m_pause.OnMouse(x, y, down, move, vw, vh);
-        if (action == PauseAction::Resume) return {};
+        if (action == PauseAction::Resume) {
+            m_pause.Close();
+            m_playing = true;
+            m_clockAnchor = Clock::now();
+            m_timeAtAnchor = m_playbackTime;
+            return Transition::Handled();
+        }
         if (action == PauseAction::ToggleSpeed) {
             static const double speeds[] = { 0.5, 0.75, 1.0, 1.25, 1.5, 2.0 };
             int current = 2;
@@ -404,7 +427,7 @@ Transition MidiPlaybackState::OnMouse(Context& ctx, int x, int y, bool down, boo
         }
         if (action == PauseAction::ToggleMode) {
             ctx.piano->ToggleDirection();
-            m_pause.SetLabel(3, ctx.piano->IsFalling() ? "MODE: FALLING" : "MODE: RISING");
+            m_pause.SetLabel(4, ctx.piano->IsFalling() ? "MODE: FALLING" : "MODE: RISING");
             return Transition::Handled();
         }
         if (action == PauseAction::BackToMenu) return {StateID::MainMenu, true, true};
@@ -422,8 +445,11 @@ Transition MidiPlaybackState::OnMouse(Context& ctx, int x, int y, bool down, boo
         if (down && onTimeline) m_draggingTimeline = true;
         if (m_draggingTimeline) {
             if (down) {
+                float leadIn = 3.0f;
+                float tailBuf = 3.0f;
+                float totalDuration = (float)ctx.midi->Duration() + leadIn + tailBuf;
                 float progress = std::clamp((x - tlX) / tlW, 0.0f, 1.0f);
-                SeekTo(ctx, progress * ctx.midi->Duration());
+                SeekTo(ctx, (double)progress * totalDuration - leadIn);
             } else {
                 m_draggingTimeline = false;
                 m_showUI = true;
@@ -436,8 +462,10 @@ Transition MidiPlaybackState::OnMouse(Context& ctx, int x, int y, bool down, boo
 
 void MidiPlaybackState::SeekTo(Context& ctx, double newTime) {
     if (!ctx.midiLoaded) return;
-    m_playbackTime = std::clamp(newTime, 0.0, ctx.midi->Duration());
-    m_playbackTick = ctx.midi->SecondsToTicks(m_playbackTime);
+    // Allow negative time for lead-in buffer; clamp to [-duration, duration]
+    double minT = -ctx.midi->Duration();
+    m_playbackTime = std::clamp(newTime, minT, ctx.midi->Duration());
+    m_playbackTick = (m_playbackTime >= 0) ? ctx.midi->SecondsToTicks(m_playbackTime) : 0;
 
     // Re-anchor wall clock so Update() resumes from the new position cleanly.
     m_clockAnchor  = Clock::now();
@@ -458,16 +486,18 @@ void MidiPlaybackState::SeekTo(Context& ctx, double newTime) {
 
     // Fast-forward nextEventIdx and replay program/CC state up to seek point.
     m_nextEventIdx = 0;
-    while (m_nextEventIdx < m_sortedEvents.size() && m_sortedEvents[m_nextEventIdx].time <= m_playbackTime) {
-        auto& ev = m_sortedEvents[m_nextEventIdx];
-        uint8_t type = ev.status & 0xF0;
-        uint8_t chan = ev.globalChannel;
+    if (m_playbackTime > 0) {
+        while (m_nextEventIdx < m_sortedEvents.size() && m_sortedEvents[m_nextEventIdx].time <= m_playbackTime) {
+            auto& ev = m_sortedEvents[m_nextEventIdx];
+            uint8_t type = ev.status & 0xF0;
+            uint8_t chan = ev.globalChannel;
 
-        if (type == 0xB0) ctx.audio->ControlChange(chan, ev.data1, ev.data2);
-        else if (type == 0xC0) ctx.audio->ProgramChange(chan, ev.data1);
-        else if (type == 0xE0) ctx.audio->PitchBend(chan, ev.data1 | (ev.data2 << 7));
+            if (type == 0xB0) ctx.audio->ControlChange(chan, ev.data1, ev.data2);
+            else if (type == 0xC0) ctx.audio->ProgramChange(chan, ev.data1);
+            else if (type == 0xE0) ctx.audio->PitchBend(chan, ev.data1 | (ev.data2 << 7));
 
-        m_nextEventIdx++;
+            m_nextEventIdx++;
+        }
     }
 }
 

@@ -24,6 +24,8 @@ public:
 
     void SetNoteSpeed(float s) { m_noteSpeed = s; }
     float GetNoteSpeed() const { return m_noteSpeed; }
+    
+    void SetSaberColor(int idx) { m_saberColorIdx = idx; }
 
     ID3D11ShaderResourceView* GetNoteTex() const { return m_noteTex.Get(); }
     ID3D11ShaderResourceView* GetGradientTex() const { return m_gradientTex.Get(); }
@@ -71,6 +73,8 @@ private:
     ComPtr<ID3D11ShaderResourceView> m_noteTex;
     ComPtr<ID3D11ShaderResourceView> m_gradientTex;
     ComPtr<ID3D11ShaderResourceView> m_glowTex;
+    ComPtr<ID3D11ShaderResourceView> m_noiseTex;
+    int m_saberColorIdx = 15; // default white
     void CreateTextures(ID3D11Device* device);
 };
 

@@ -166,7 +166,7 @@ Transition FreePlayState::OnKey(Context& ctx, int key, bool down) {
         if (action == PauseAction::ChangeBackground) { OpenBackgroundDialog(ctx, m_backgroundTex); return Transition::Handled(); }
         if (action == PauseAction::ToggleMode) {
             ctx.piano->ToggleDirection();
-            m_pause.SetLabel(3, ctx.piano->IsFalling() ? "MODE: FALLING" : "MODE: RISING");
+            m_pause.SetLabel(4, ctx.piano->IsFalling() ? "MODE: FALLING" : "MODE: RISING");
             return Transition::Handled();
         }
         if (action == PauseAction::BackToMenu) return {StateID::MainMenu, true, true};
@@ -178,7 +178,7 @@ Transition FreePlayState::OnKey(Context& ctx, int key, bool down) {
 
     if (key == VK_ESCAPE) {
         m_pause.SetLabel(1, "SPEED: N/A");
-        m_pause.SetLabel(3, ctx.piano->IsFalling() ? "MODE: FALLING" : "MODE: RISING");
+        m_pause.SetLabel(4, ctx.piano->IsFalling() ? "MODE: FALLING" : "MODE: RISING");
         m_pause.Open();
         ctx.audio->AllNotesOff();
         return Transition::Handled();
@@ -200,7 +200,7 @@ Transition FreePlayState::OnMouse(Context& ctx, int x, int y, bool down, bool mo
         if (action == PauseAction::ChangeBackground) { OpenBackgroundDialog(ctx, m_backgroundTex); return Transition::Handled(); }
         if (action == PauseAction::ToggleMode) {
             ctx.piano->ToggleDirection();
-            m_pause.SetLabel(3, ctx.piano->IsFalling() ? "MODE: FALLING" : "MODE: RISING");
+            m_pause.SetLabel(4, ctx.piano->IsFalling() ? "MODE: FALLING" : "MODE: RISING");
             return Transition::Handled();
         }
         if (action == PauseAction::BackToMenu) return {StateID::MainMenu, true, true};

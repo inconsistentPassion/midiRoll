@@ -17,7 +17,7 @@ public:
     Transition OnMouse(Context& ctx, int x, int y, bool down, bool move) override;
 
 private:
-    enum class MenuAction { None, FreePlay, MidiPlayback, SoundFont, MidiDevice, Quit };
+    enum class MenuAction { None, FreePlay, MidiPlayback, SoundFont, SaberColor, MidiDevice, Quit };
 
     struct MenuItem {
         std::string label;
@@ -46,17 +46,20 @@ private:
 
     // Cycles to next MIDI device and opens it; updates the button label
     void CycleMidiDevice(Context& ctx);
+    void CycleSaberColor(Context& ctx);
 
     std::vector<MenuItem> m_items{{
         {"FREE PLAY",      MenuAction::FreePlay,     {0.3f, 0.8f, 1.0f, 1.0f}},
         {"MIDI PLAYBACK",  MenuAction::MidiPlayback, {1.0f, 0.6f, 0.2f, 1.0f}},
         {"SOUNDFONT",      MenuAction::SoundFont,    {0.8f, 0.7f, 0.4f, 1.0f}},
+        {"SABER: WHITE",   MenuAction::SaberColor,   {0.9f, 0.9f, 0.9f, 1.0f}},
         {"MIDI: none",     MenuAction::MidiDevice,   {0.3f, 0.8f, 0.8f, 1.0f}},
         {"QUIT",           MenuAction::Quit,         {0.6f, 0.3f, 0.3f, 1.0f}},
     }};
 
     int m_selected{};
     int m_hovered{-1};
+    int m_saberColorIdx{15};
     int m_midiDeviceIndex{-1}; // currently selected device (-1 = none)
     std::vector<FallingNote> m_bgNotes;
     std::mt19937 m_rng{std::random_device{}()};

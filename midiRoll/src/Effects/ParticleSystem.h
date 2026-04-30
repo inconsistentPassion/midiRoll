@@ -17,13 +17,19 @@ struct Particle {
     float  size;
     uint32_t flags;     // bit 0 = isGlow
     bool   active;      // is this particle slot in use?
+    
+    // For orbiting
+    float anchorX;
+    float orbitSpeed;
+    float orbitRadius;
+    float orbitPhase;
 };
 
 class ParticleSystem {
 public:
     bool Initialize(ID3D11Device* device);
     void EmitBurst(float x, float y, util::Color color, int count = 20);
-    void EmitContinuous(float x, float y, util::Color color);
+    void EmitContinuous(float centerX, float y, float noteW, util::Color color);
     void EmitSparks(float x, float y, util::Color color);
     void Update(float dt);
     void Draw(SpriteBatch& batch);
