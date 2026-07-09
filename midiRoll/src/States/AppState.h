@@ -39,6 +39,7 @@ public:
     // Handle raw input events. Return a Transition to switch states.
     virtual Transition OnKey(Context& ctx, int key, bool down) = 0;
     virtual Transition OnMouse(Context& ctx, int x, int y, bool down, bool move) = 0;
+    virtual Transition OnMouseWheel(Context& ctx, int delta) { return {}; } // Default no-op
 };
 
 } // namespace pfd

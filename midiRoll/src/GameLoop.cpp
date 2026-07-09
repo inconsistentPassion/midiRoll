@@ -27,6 +27,9 @@ bool GameLoop::Initialize(HINSTANCE hInstance, int nCmdShow) {
     m_window.SetMouseCallback([](int x, int y, bool down, bool move) {
         if (s_gameLoop) s_gameLoop->OnMouse(x, y, down, move);
     });
+    m_window.SetMouseWheelCallback([](int delta) {
+        if (s_gameLoop) s_gameLoop->OnMouseWheel(delta);
+    });
 
     if (!m_d3d.Initialize(m_window.Handle(), m_window.Width(), m_window.Height())) {
         MessageBoxW(nullptr, L"Failed: D3D.Initialize", L"Init Error", MB_OK);
@@ -38,6 +41,16 @@ bool GameLoop::Initialize(HINSTANCE hInstance, int nCmdShow) {
     }
     m_piano.Initialize(m_d3d.Device(), m_window.Width(), m_window.Height());
     m_font.Initialize(m_d3d.Device(), m_d3d.Context(), 48.0f);
+    if (!m_ui.Initialize(m_d3d.Device(), m_d3d.Context())) {
+        MessageBoxW(nullptr, L"Failed: UIRenderer.Initialize", L"Init Error", MB_OK);
+        return false;
+    }
+    if (!m_ui.LoadFont(m_d3d.Device(), m_d3d.Context(), "C:\\Windows\\Fonts\\arial.ttf", 48.0f)) {
+        // Fallback for some systems where Arial might not be at the standard path
+        if (!m_ui.LoadFont(m_d3d.Device(), m_d3d.Context(), "C:\\Windows\\Fonts\\consola.ttf", 48.0f)) {
+             // Not fatal, but good to know
+        }
+    }
     m_audio.Initialize();
     TryAutoLoadSoundFont();
 
@@ -49,6 +62,7 @@ bool GameLoop::Initialize(HINSTANCE hInstance, int nCmdShow) {
     m_ctx.d3d         = &m_d3d;
     m_ctx.spriteBatch = &m_spriteBatch;
     m_ctx.font        = &m_font;
+    m_ctx.ui          = &m_ui;
     m_ctx.piano       = &m_piano;
     m_ctx.noteState   = &m_noteState;
     m_ctx.audio       = &m_audio;
@@ -80,6 +94,7 @@ void GameLoop::Run() {
         // Auto-reconnect: if a device was selected but is no longer open, retry
         PollMidiReconnect(dt);
 
+        m_d3d.Clear(0.02f, 0.02f, 0.04f, 1.0f); // Match COL_BG
         m_states.Update(m_ctx, dt);
         m_states.Render(m_ctx);
         m_d3d.Present(true);
@@ -119,6 +134,10 @@ void GameLoop::OnKey(int key, bool down) {
 
 void GameLoop::OnMouse(int x, int y, bool down, bool move) {
     m_states.OnMouse(m_ctx, x, y, down, move);
+}
+
+void GameLoop::OnMouseWheel(int delta) {
+    m_states.OnMouseWheel(m_ctx, delta);
 }
 
 void GameLoop::TryAutoLoadSoundFont() {

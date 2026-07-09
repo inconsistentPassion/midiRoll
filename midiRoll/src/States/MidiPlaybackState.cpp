@@ -12,7 +12,8 @@ namespace pfd {
 void MidiPlaybackState::Enter(Context& ctx) {
     m_playbackTime = 0;
     m_playbackTick = 0;
-    m_nextEventIdx = 0;
+    m_nextAudioEventIdx = 0;
+    m_nextVisualEventIdx = 0;
     m_playing = false;
     m_loop = true;
     m_pause.Close();
@@ -48,7 +49,8 @@ void MidiPlaybackState::LoadMidiFile(Context& ctx, const std::wstring& path) {
     if (ctx.midi->Load(path)) {
         ctx.midiLoaded = true;
         m_sortedEvents = ctx.midi->GetAllEventsSorted();
-        m_nextEventIdx = 0;
+        m_nextAudioEventIdx = 0;
+        m_nextVisualEventIdx = 0;
         m_playbackTime = 0;
         m_playbackTick = 0;
         m_playing = true;
@@ -155,37 +157,57 @@ Transition MidiPlaybackState::Update(Context& ctx, double dt) {
             }
         }
 
-        // Compare against ev.time (seconds) directly — avoids SecondsToTicks rounding
-        // which causes ±1 tick (~few ms) jitter per event.
-        while (m_nextEventIdx < m_sortedEvents.size() &&
-               m_sortedEvents[m_nextEventIdx].time <= m_playbackTime) {
-            auto& ev = m_sortedEvents[m_nextEventIdx];
+        // 1. Audio Lookahead Scheduling
+        double lookaheadTime = m_playbackTime + 0.1;
+        while (m_nextAudioEventIdx < m_sortedEvents.size() &&
+               m_sortedEvents[m_nextAudioEventIdx].time <= lookaheadTime) {
+            auto& ev = m_sortedEvents[m_nextAudioEventIdx];
+            
+            // Calculate delay in real-world seconds, adjusted for playback speed
+            double delaySecs = (ev.time - m_playbackTime) / m_playbackSpeed;
+            uint32_t delayMs = (delaySecs > 0.0) ? (uint32_t)(delaySecs * 1000.0) : 0;
+            uint32_t targetTick = ctx.audio->GetSequencerTick() + delayMs;
+
+            uint8_t type = ev.status & 0xF0;
+            uint8_t chan = ev.globalChannel;
+
+            if (ev.isNoteOn) {
+                ctx.audio->ScheduleNoteOn(chan, ev.data1, ev.data2, targetTick);
+            } else if (ev.isNoteOff) {
+                ctx.audio->ScheduleNoteOff(chan, ev.data1, targetTick);
+            } else if (type == 0xB0) {
+                ctx.audio->ScheduleControlChange(chan, ev.data1, ev.data2, targetTick);
+            } else if (type == 0xE0) {
+                ctx.audio->SchedulePitchBend(chan, ev.data1 | (ev.data2 << 7), targetTick);
+            } else if (type == 0xC0) {
+                ctx.audio->ScheduleProgramChange(chan, ev.data1, targetTick);
+            } else if (type == 0xD0) {
+                ctx.audio->ScheduleChannelPressure(chan, ev.data1, targetTick);
+            } else if (type == 0xA0) {
+                ctx.audio->ScheduleKeyPressure(chan, ev.data1, ev.data2, targetTick);
+            }
+            m_nextAudioEventIdx++;
+        }
+
+        // 2. Real-Time Visual Updates
+        while (m_nextVisualEventIdx < m_sortedEvents.size() &&
+               m_sortedEvents[m_nextVisualEventIdx].time <= m_playbackTime) {
+            auto& ev = m_sortedEvents[m_nextVisualEventIdx];
             uint8_t type = ev.status & 0xF0;
             uint8_t chan = ev.globalChannel;
 
             if (ev.isNoteOn) {
                 ctx.noteState->NoteOn(ev.data1, ev.data2, chan, m_playbackTime);
-                ctx.audio->NoteOn(chan, ev.data1, ev.data2);
             } else if (ev.isNoteOff) {
                 ctx.noteState->NoteOff(ev.data1, chan, m_playbackTime);
-                ctx.audio->NoteOff(chan, ev.data1);
             } else if (type == 0xB0) {
-                ctx.audio->ControlChange(chan, ev.data1, ev.data2);
                 // CC #64 = sustain pedal: track visually
                 if (ev.data1 == 64) {
                     if (ev.data2 >= 64) ctx.noteState->SustainOn(chan);
                     else                ctx.noteState->SustainOff(chan, m_playbackTime);
                 }
-            } else if (type == 0xE0) {
-                ctx.audio->PitchBend(chan, ev.data1 | (ev.data2 << 7));
-            } else if (type == 0xC0) {
-                ctx.audio->ProgramChange(chan, ev.data1);
-            } else if (type == 0xD0) {
-                ctx.audio->ChannelPressure(chan, ev.data1);
-            } else if (type == 0xA0) {
-                ctx.audio->KeyPressure(chan, ev.data1, ev.data2);
             }
-            m_nextEventIdx++;
+            m_nextVisualEventIdx++;
         }
     }
 
@@ -474,6 +496,9 @@ void MidiPlaybackState::SeekTo(Context& ctx, double newTime) {
     m_clockAnchor  = Clock::now();
     m_timeAtAnchor = m_playbackTime;
 
+    // Flush scheduled events in the sequencer
+    ctx.audio->ClearScheduledEvents();
+
     // Clear all active notes
     ctx.audio->AllNotesOff();
     ctx.noteState->AllNotesOff(ctx.timer->Elapsed());
@@ -487,20 +512,30 @@ void MidiPlaybackState::SeekTo(Context& ctx, double newTime) {
         ctx.audio->ControlChange(ch, 67, 0);  // Soft pedal off
     }
 
-    // Fast-forward nextEventIdx and replay program/CC state up to seek point.
-    m_nextEventIdx = 0;
+    // Fast-forward both audio and visual indices to the seek target.
+    // We immediately trigger CC/Program Change/Pitch Bend directly on the synth
+    // to restore correct instrument state at the seek target.
+    m_nextVisualEventIdx = 0;
+    m_nextAudioEventIdx = 0;
     if (m_playbackTime > 0) {
-        while (m_nextEventIdx < m_sortedEvents.size() && m_sortedEvents[m_nextEventIdx].time <= m_playbackTime) {
-            auto& ev = m_sortedEvents[m_nextEventIdx];
+        while (m_nextVisualEventIdx < m_sortedEvents.size() && m_sortedEvents[m_nextVisualEventIdx].time <= m_playbackTime) {
+            auto& ev = m_sortedEvents[m_nextVisualEventIdx];
             uint8_t type = ev.status & 0xF0;
             uint8_t chan = ev.globalChannel;
 
-            if (type == 0xB0) ctx.audio->ControlChange(chan, ev.data1, ev.data2);
+            if (type == 0xB0) {
+                ctx.audio->ControlChange(chan, ev.data1, ev.data2);
+                if (ev.data1 == 64) {
+                    if (ev.data2 >= 64) ctx.noteState->SustainOn(chan);
+                    else                ctx.noteState->SustainOff(chan, m_playbackTime);
+                }
+            }
             else if (type == 0xC0) ctx.audio->ProgramChange(chan, ev.data1);
             else if (type == 0xE0) ctx.audio->PitchBend(chan, ev.data1 | (ev.data2 << 7));
 
-            m_nextEventIdx++;
+            m_nextVisualEventIdx++;
         }
+        m_nextAudioEventIdx = m_nextVisualEventIdx;
     }
 }
 

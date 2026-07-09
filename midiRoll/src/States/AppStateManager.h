@@ -16,6 +16,7 @@ public:
     // Returns true if a transition was requested
     bool OnKey(Context& ctx, int key, bool down);
     bool OnMouse(Context& ctx, int x, int y, bool down, bool move);
+    bool OnMouseWheel(Context& ctx, int delta);
 
     StateID Current() const { return m_current; }
 

@@ -14,7 +14,7 @@ inline bool OpenSoundFontDialog(Context& ctx) {
     OPENFILENAMEW ofn{};
     ofn.lStructSize = sizeof(ofn);
     ofn.hwndOwner   = ctx.window->Handle();
-    ofn.lpstrFilter = L"SoundFont Files (*.sf2)\0*.sf2\0All Files (*.*)\0*.*\0";
+    ofn.lpstrFilter = L"SoundFont Files (*.sf2;*.sf3)\0*.sf2;*.sf3\0All Files (*.*)\0*.*\0";
     ofn.lpstrFile   = filePath;
     ofn.nMaxFile    = MAX_PATH;
     ofn.lpstrTitle  = L"Open SoundFont File";

@@ -36,6 +36,12 @@ bool AppStateManager::OnMouse(Context& ctx, int x, int y, bool down, bool move) 
     return ApplyTransition(t, ctx), t.requested;
 }
 
+bool AppStateManager::OnMouseWheel(Context& ctx, int delta) {
+    if (!m_active) return false;
+    Transition t = m_active->OnMouseWheel(ctx, delta);
+    return ApplyTransition(t, ctx), t.requested;
+}
+
 void AppStateManager::ApplyTransition(const Transition& t, Context& ctx) {
     if (t.requested) SwitchTo(t.target, ctx);
 }

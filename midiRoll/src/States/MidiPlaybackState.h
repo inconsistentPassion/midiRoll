@@ -30,7 +30,8 @@ private:
 
     double  m_playbackTime{};
     uint32_t m_playbackTick{};
-    size_t  m_nextEventIdx{};
+    size_t  m_nextAudioEventIdx{};
+    size_t  m_nextVisualEventIdx{};
     bool    m_playing{};
     bool    m_loop{true};
     double  m_playbackSpeed{1.0};

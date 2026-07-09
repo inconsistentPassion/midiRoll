@@ -7,8 +7,10 @@ static Window* s_windowInstance = nullptr;
 
 bool Window::Create(int width, int height, const wchar_t* title) {
     s_windowInstance = this;
-    m_width = width;
-    m_height = height;
+    
+    // Enforce 1080p minimum window size
+    m_width = std::max(width, 1920);
+    m_height = std::max(height, 1080);
 
     WNDCLASSEXW wc{};
     wc.cbSize        = sizeof(wc);
@@ -20,7 +22,7 @@ bool Window::Create(int width, int height, const wchar_t* title) {
 
     if (!RegisterClassExW(&wc)) return false;
 
-    RECT rc = {0, 0, width, height};
+    RECT rc = {0, 0, m_width, m_height};
     AdjustWindowRect(&rc, WS_OVERLAPPEDWINDOW, FALSE);
 
     m_hwnd = CreateWindowExW(
@@ -58,8 +60,27 @@ LRESULT CALLBACK Window::WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     switch (msg) {
     case WM_SIZE: {
         if (wp != SIZE_MINIMIZED) {
-            self->m_width  = LOWORD(lp);
-            self->m_height = HIWORD(lp);
+            int newWidth = LOWORD(lp);
+            int newHeight = HIWORD(lp);
+            
+            // Enforce 1080p minimum window size
+            if (newWidth < 1920 || newHeight < 1080) {
+                RECT rc;
+                GetClientRect(hwnd, &rc);
+                newWidth = std::max(newWidth, 1920);
+                newHeight = std::max(newHeight, 1080);
+                
+                // Adjust window size to maintain client area
+                rc.right = rc.left + newWidth;
+                rc.bottom = rc.top + newHeight;
+                AdjustWindowRect(&rc, WS_OVERLAPPEDWINDOW, FALSE);
+                SetWindowPos(hwnd, nullptr, 0, 0, 
+                           rc.right - rc.left, rc.bottom - rc.top,
+                           SWP_NOMOVE | SWP_NOZORDER);
+            }
+            
+            self->m_width  = newWidth;
+            self->m_height = newHeight;
             if (self->m_resizeCb)
                 self->m_resizeCb(self->m_width, self->m_height);
         }
@@ -77,9 +98,19 @@ LRESULT CALLBACK Window::WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     case WM_LBUTTONUP:
         if (self->m_mouseCb) self->m_mouseCb(LOWORD(lp), HIWORD(lp), false, false);
         return 0;
+    case WM_RBUTTONDOWN:
+        if (self->m_mouseCb) self->m_mouseCb(LOWORD(lp), HIWORD(lp), true, false);
+        return 0;
     case WM_MOUSEMOVE:
         if (self->m_mouseCb) self->m_mouseCb(LOWORD(lp), HIWORD(lp), (wp & MK_LBUTTON) != 0, true);
         return 0;
+    case WM_MOUSEWHEEL: {
+        if (self->m_mouseWheelCb) {
+            int delta = GET_WHEEL_DELTA_WPARAM(wp);
+            self->m_mouseWheelCb(delta);
+        }
+        return 0;
+    }
     case WM_DESTROY:
         PostQuitMessage(0);
         return 0;

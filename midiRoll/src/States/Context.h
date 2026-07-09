@@ -3,6 +3,7 @@
 #include "../Renderer/D3DContext.h"
 #include "../Renderer/SpriteBatch.h"
 #include "../Renderer/FontRenderer.h"
+#include "../Renderer/UIRenderer.h"
 #include "../Piano/PianoRenderer.h"
 #include "../Piano/NoteState.h"
 #include "../Audio/SoundFontEngine.h"
@@ -19,6 +20,7 @@ struct Context {
     D3DContext*       d3d{};
     SpriteBatch*     spriteBatch{};
     FontRenderer*    font{};
+    UIRenderer*      ui{};
     PianoRenderer*   piano{};
     NoteState*       noteState{};
     SoundFontEngine* audio{};

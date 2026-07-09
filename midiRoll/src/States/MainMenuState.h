@@ -1,9 +1,11 @@
 #pragma once
 #include "AppState.h"
+#include "../Renderer/UIRenderer.h"
 #include "../Util/Color.h"
 #include <array>
 #include <string>
 #include <random>
+#include <filesystem>
 
 namespace pfd {
 
@@ -15,57 +17,92 @@ public:
     void Render(Context& ctx) override;
     Transition OnKey(Context& ctx, int key, bool down) override;
     Transition OnMouse(Context& ctx, int x, int y, bool down, bool move) override;
+    Transition OnMouseWheel(Context& ctx, int delta) override;
 
-private:
-    enum class MenuAction { None, FreePlay, MidiPlayback, SoundFont, SaberColor, MidiDevice, Quit };
-
-    struct MenuItem {
-        std::string label;
-        MenuAction  action;
-        util::Color color;
-        float       hoverAnim{}; // 0..1
+protected:
+    // ── Button actions ──
+public:
+    enum class ButtonID {
+        FreePlay, OpenMidi,
+        Project0, Project1, Project2,
+        SoundFont, MidiDevice, Settings,
+        Count
     };
 
+private:
+    struct Button {
+        float x, y, w, h;
+        ButtonID id;
+        bool hovered = false;
+        float hoverAnim = 0.0f; // smooth 0..1
+        float pressAnim = 0.0f; // smooth 0..1 for press animation
+    };
+
+    // ── Background note (uses GPUNoteSystem visuals) ──
     struct FallingNote {
         float x, y;
         float speed;
-        float width;
-        float height;
+        float width, height;
         util::Color color;
         float alpha;
     };
 
+    // ── Recent project entry ──
+    struct RecentProject {
+        std::string name;
+        std::string date;
+        std::string filePath;
+        // Accurate note data for mini preview
+        struct NoteBlock { float x, y, w, h; util::Color color; };
+        std::vector<NoteBlock> notes;
+        bool hovered = false;
+        float hoverAnim = 0.0f; // smooth 0..1 for card expansion
+    };
+
+    // ── Draw helpers (all use UIRenderer, no SpriteBatch) ──
     void DrawBackground(Context& ctx);
     void DrawTitle(Context& ctx);
-    void DrawButtons(Context& ctx);
+    void DrawMainButtons(Context& ctx);
+    void DrawRecentProjects(Context& ctx);
+    void DrawBottomBar(Context& ctx);
     void DrawHint(Context& ctx);
     void SpawnBackgroundNote(Context& ctx);
+    
+    // ── File and project logic ──
+    void LoadRecentProjects();
+    void SaveRecentProjects();
+    void AddRecentProject(const std::string& path);
+    void GenerateNotesFromMidi(RecentProject& proj, const std::string& path);
 
-    // Returns a label like "MIDI: Piano [1/2]" or "MIDI: none"
-    std::string BuildMidiLabel(int deviceIndex) const;
+    // ── Button hit testing ──
+    ButtonID HitTest(int mx, int my);
+    void UpdateHoverStates(int mx, int my);
+    Transition ActivateButton(Context& ctx, ButtonID id);
+    void HandleRightClick(int mx, int my);
+    void ShowContextMenu(HWND hWnd, int x, int y, int projectIndex);
 
-    // Cycles to next MIDI device and opens it; updates the button label
-    void CycleMidiDevice(Context& ctx);
-    void CycleSaberColor(Context& ctx);
+    // ── Data ──
+    std::array<Button, (int)ButtonID::Count> m_buttons{};
+    ButtonID m_focused = ButtonID::FreePlay;
 
-    std::vector<MenuItem> m_items{{
-        {"FREE PLAY",      MenuAction::FreePlay,     {0.3f, 0.8f, 1.0f, 1.0f}},
-        {"MIDI PLAYBACK",  MenuAction::MidiPlayback, {1.0f, 0.6f, 0.2f, 1.0f}},
-        {"SOUNDFONT",      MenuAction::SoundFont,    {0.8f, 0.7f, 0.4f, 1.0f}},
-        {"SABER: WHITE",   MenuAction::SaberColor,   {0.9f, 0.9f, 0.9f, 1.0f}},
-        {"MIDI: none",     MenuAction::MidiDevice,   {0.3f, 0.8f, 0.8f, 1.0f}},
-        {"QUIT",           MenuAction::Quit,         {0.6f, 0.3f, 0.3f, 1.0f}},
-    }};
-
-    int m_selected{};
-    int m_hovered{-1};
-    int m_saberColorIdx{15};
-    int m_midiDeviceIndex{-1}; // currently selected device (-1 = none)
     std::vector<FallingNote> m_bgNotes;
+    std::vector<RecentProject> m_recentProjects;
     std::mt19937 m_rng{std::random_device{}()};
-    float m_spawnTimer{};
-    float m_titleAnim{};
-    float m_enterAnim{1.0f}; // fade-in on enter
+
+    float m_spawnTimer = 0;
+    float m_titleAnim = 0;
+    float m_enterAnim = 1.0f;
+
+    int m_saberColorIdx = 15;
+    int m_midiDeviceIndex = -1;
+    
+    // Scroll offset for recent projects
+    float m_projectScrollOffset = 0.0f;
+    int m_maxVisibleProjects = 3;
+
+    // Cached layout (recalculated on resize)
+    int m_lastW = 0, m_lastH = 0;
+    void RebuildLayout(int vw, int vh);
 };
 
 } // namespace pfd

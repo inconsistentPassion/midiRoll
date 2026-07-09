@@ -12,6 +12,8 @@
 struct fluid_settings_t;
 struct fluid_synth_t;
 struct fluid_audio_driver_t;
+struct fluid_sequencer_t;
+typedef int fluid_seq_id_t;
 #endif
 
 namespace pfd {
@@ -40,6 +42,21 @@ public:
 
     void ProcessEvents();
 
+    // Sequencer-based scheduling methods
+    uint32_t GetSequencerTick() const;
+    void ClearScheduledEvents();
+    void ScheduleNoteOn(int channel, int note, int velocity, uint32_t tick);
+    void ScheduleNoteOff(int channel, int note, uint32_t tick);
+    void ScheduleControlChange(int channel, int control, int value, uint32_t tick);
+    void SchedulePitchBend(int channel, int value, uint32_t tick);
+    void ScheduleProgramChange(int channel, int program, uint32_t tick);
+    void ScheduleChannelPressure(int channel, int value, uint32_t tick);
+    void ScheduleKeyPressure(int channel, int note, int value, uint32_t tick);
+
+    // Reverb and chorus configuration
+    void ConfigureReverb(double roomsize, double damping, double width, double level);
+    void ConfigureChorus(int voices, double level, double speed, double depth);
+
 private:
     struct AudioEvent {
         enum class Type { 
@@ -55,6 +72,8 @@ private:
     fluid_settings_t*     m_settings{};
     fluid_synth_t*        m_synth{};
     fluid_audio_driver_t* m_audioDriver{};
+    fluid_sequencer_t*    m_sequencer{};
+    fluid_seq_id_t        m_synthSeqId{-1};
     bool                  m_initialized{};
     int                   m_sfontId{-1};
     bool                  m_soundFontLoaded{};

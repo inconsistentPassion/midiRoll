@@ -113,6 +113,7 @@
     <ClCompile Include="src\Renderer\D3DContext.cpp" />
     <ClCompile Include="src\Renderer\SpriteBatch.cpp" />
     <ClCompile Include="src\Renderer\FontRenderer.cpp" />
+    <ClCompile Include="src\Renderer\UIRenderer.cpp" />
     <ClCompile Include="src\Effects\ParticleSystem.cpp" />
     <ClCompile Include="src\Effects\GPUParticleSystem.cpp" />
     <ClCompile Include="src\Piano\PianoRenderer.cpp" />
@@ -139,6 +140,7 @@
     <ClInclude Include="src\Renderer\D3DContext.h" />
     <ClInclude Include="src\Renderer\SpriteBatch.h" />
     <ClInclude Include="src\Renderer\FontRenderer.h" />
+    <ClInclude Include="src\Renderer\UIRenderer.h" />
     <ClInclude Include="src\Renderer\stb_truetype.h" />
     <ClInclude Include="src\Effects\ParticleSystem.h" />
     <ClInclude Include="src\Effects\GPUParticleSystem.h" />
@@ -156,17 +158,5 @@
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />
   <ItemGroup>
-    <None Include="libs\fluidsynth\bin\libfluidsynth-3.dll">
-      <DeploymentContent>true</DeploymentContent>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Include="libs\fluidsynth\bin\SDL3.dll">
-      <DeploymentContent>true</DeploymentContent>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Include="libs\fluidsynth\bin\sndfile.dll">
-      <DeploymentContent>true</DeploymentContent>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
   </ItemGroup>
 </Project>

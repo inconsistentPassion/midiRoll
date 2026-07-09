@@ -6,6 +6,10 @@
 #include <vector>
 #include <cstdint>
 
+#ifdef DrawText
+#undef DrawText
+#endif
+
 namespace pfd {
 
 class FontRenderer {

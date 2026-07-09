@@ -3,6 +3,7 @@
 #include "Renderer/D3DContext.h"
 #include "Renderer/SpriteBatch.h"
 #include "Renderer/FontRenderer.h"
+#include "Renderer/UIRenderer.h"
 #include "Piano/PianoRenderer.h"
 #include "Piano/NoteState.h"
 #include "Audio/SoundFontEngine.h"
@@ -27,6 +28,7 @@ public:
     void OnResize(int width, int height);
     void OnKey(int key, bool down);
     void OnMouse(int x, int y, bool down, bool move);
+    void OnMouseWheel(int delta);
 
 private:
     // Core systems
@@ -34,6 +36,7 @@ private:
     D3DContext      m_d3d;
     SpriteBatch     m_spriteBatch;
     FontRenderer    m_font;
+    UIRenderer      m_ui;
     PianoRenderer   m_piano;
     NoteState       m_noteState;
     SoundFontEngine m_audio;

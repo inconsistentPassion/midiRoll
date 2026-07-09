@@ -8,6 +8,7 @@ namespace pfd {
 using ResizeCallback = void(*)(int width, int height);
 using KeyCallback    = void(*)(int key, bool down);
 using MouseCallback  = void(*)(int x, int y, bool down, bool move);
+using MouseWheelCallback = void(*)(int delta);
 using MidiCallback   = void(*)(int note, int velocity, bool noteOn);
 
 class Window {
@@ -17,6 +18,7 @@ public:
     void SetResizeCallback(ResizeCallback cb) { m_resizeCb = cb; }
     void SetKeyCallback(KeyCallback cb) { m_keyCb = cb; }
     void SetMouseCallback(MouseCallback cb) { m_mouseCb = cb; }
+    void SetMouseWheelCallback(MouseWheelCallback cb) { m_mouseWheelCb = cb; }
 
     HWND  Handle() const { return m_hwnd; }
     int   Width()  const { return m_width; }
@@ -39,6 +41,7 @@ private:
     ResizeCallback m_resizeCb{};
     KeyCallback    m_keyCb{};
     MouseCallback  m_mouseCb{};
+    MouseWheelCallback m_mouseWheelCb{};
 };
 
 } // namespace pfd
