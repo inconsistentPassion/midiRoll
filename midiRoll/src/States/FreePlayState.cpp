@@ -1,5 +1,6 @@
 #include "FreePlayState.h"
 #include "StateHelpers.h"
+#include "../Renderer/FrostedGlassTheme.h"
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
@@ -92,42 +93,59 @@ Transition FreePlayState::Update(Context& ctx, double dt) {
 
 void FreePlayState::Render(Context& ctx) {
     auto& batch = *ctx.spriteBatch;
+    auto& ui = *ctx.ui;
     int vw = ctx.window->Width();
     int vh = ctx.window->Height();
     float currentTime = (float)ctx.timer->Elapsed();
 
+    // ── Phase 1: Render game world via SpriteBatch ──
     batch.Begin(ctx.d3d->Context(), vw, vh);
 
     if (m_backgroundTex) {
         batch.Draw({0, 0}, {(float)vw, (float)vh}, m_backgroundTex.Get(), {0,0}, {1,1}, {1,1,1,1});
         batch.Draw({0, 0}, {(float)vw, (float)vh}, {0, 0, 0, 0.35f});
     } else {
-        batch.Draw({0, 0}, {(float)vw, (float)vh}, {0.02f, 0.02f, 0.04f, 1.0f});
+        auto& T = glass::GetTheme();
+        batch.Draw({0, 0}, {(float)vw, (float)vh}, {T.bgColor.x, T.bgColor.y, T.bgColor.z, 1.0f});
     }
 
     ctx.piano->Render(batch, *ctx.noteState, {}, currentTime, currentTime, ctx.deltaTime, ctx.d3d->Context());
+    batch.End();
+
+    // ── Phase 2: Capture scene for glass ──
+    auto* sceneSRV = ctx.d3d->CaptureSceneForGlass();
+    float maxLOD = ctx.d3d->GetSceneMaxLOD();
+
+    // ── Phase 3: Background blobs ──
+    ctx.glass->Render(ctx.d3d->Context(), vw, vh, (float)m_liveTime);
+
+    // ── Phase 4: Glass UI overlay ──
+    ui.Begin(ctx.d3d->Context(), vw, vh, sceneSRV, maxLOD);
 
     if (m_showHUD) DrawHUD(ctx);
 
-    // Capture screen for blur before drawing pause menu overlay
-    ID3D11ShaderResourceView* screenTex = nullptr;
+    // Pause menu (glass version)
     if (m_pause.IsOpen()) {
-        batch.End();
-        screenTex = ctx.d3d->CaptureScreen();
-        batch.Begin(ctx.d3d->Context(), vw, vh);
+        ui.FlushGlass();
+        m_pause.RenderGlass(ui, vw, vh, sceneSRV, maxLOD);
     }
 
-    // Pause menu on top
-    m_pause.Render(batch, *ctx.font, ctx.piano->GetNoteTex(), vw, vh, screenTex);
-
-    batch.End();
+    ui.End();
 }
 
 void FreePlayState::DrawHUD(Context& ctx) {
-    auto& font = *ctx.font;
-    auto& batch = *ctx.spriteBatch;
+    auto& ui = *ctx.ui;
+    auto& T = glass::GetTheme();
 
-    font.DrawText(batch, "FREE PLAY", 12, 12, 0.35f, 0.85f, 1.0f, 1.0f);
+    // HUD panel — glass material
+    UIRenderer::RectStyle panelStyle;
+    panelStyle.color = util::Vec4(0, 0, 0, 0);
+    panelStyle.cornerRadius = T.radiusLg;
+    panelStyle.borderWidth = 1.0f;
+    panelStyle.borderColor = util::Vec4(1, 1, 1, T.glassBorderAlpha);
+    ui.DrawGlass(8, 8, 260, 120, panelStyle, T.blurLODLight, T.glassAlpha);
+
+    ui.DrawText("FREE PLAY", 20, 18, T.accentBlue, 1.0f);
 
     int activeCount = 0;
     for (int i = 0; i < 128; i++) {
@@ -136,25 +154,25 @@ void FreePlayState::DrawHUD(Context& ctx) {
     if (activeCount > 0) {
         char buf[32];
         std::snprintf(buf, sizeof(buf), "Notes: %d", activeCount);
-        font.DrawText(batch, buf, 12, 42, 0.7f, 0.7f, 0.8f, 0.75f);
+        ui.DrawText(buf, 20, 48, T.textSecondary, 0.75f);
     }
 
     if (ctx.audio->IsSoundFontLoaded()) {
         std::filesystem::path p(ctx.soundFontPath);
-        font.DrawText(batch, "SF2: " + p.filename().string(), 12, 68, 0.4f, 0.75f, 0.4f, 0.75f);
+        ui.DrawText("SF2: " + p.filename().string(), 20, 74, T.accentGreen, 0.75f);
     } else {
-        font.DrawText(batch, "SF2: none", 12, 68, 0.6f, 0.4f, 0.3f, 0.75f);
+        ui.DrawText("SF2: none", 20, 74, T.accentRed, 0.75f);
     }
 
     if (ctx.midiInput && ctx.midiInput->IsOpen()) {
-        font.DrawText(batch, "MIDI: " + ctx.midiInput->DeviceName(), 12, 94, 0.35f, 0.75f, 0.9f, 0.75f);
+        ui.DrawText("MIDI: " + ctx.midiInput->DeviceName(), 20, 100, T.accentBlue, 0.75f);
     } else {
-        font.DrawText(batch, "MIDI: no device", 12, 94, 0.65f, 0.45f, 0.45f, 0.75f);
+        ui.DrawText("MIDI: no device", 20, 100, T.textMuted, 0.75f);
     }
 
     const char* hint = "ESC: Menu  |  F1: Toggle HUD";
     float hy = (float)ctx.window->Height() - ctx.piano->GetPianoHeight() - 30.0f;
-    font.DrawText(batch, hint, 12, hy, 0.55f, 0.55f, 0.65f, 0.75f);
+    ui.DrawText(hint, 12, hy, T.textMuted, 0.75f);
 }
 
 Transition FreePlayState::OnKey(Context& ctx, int key, bool down) {

@@ -4,6 +4,7 @@
 #include "../Renderer/SpriteBatch.h"
 #include "../Renderer/FontRenderer.h"
 #include "../Renderer/UIRenderer.h"
+#include "../Renderer/GlassRenderer.h"
 #include "../Piano/PianoRenderer.h"
 #include "../Piano/NoteState.h"
 #include "../Audio/SoundFontEngine.h"
@@ -21,6 +22,7 @@ struct Context {
     SpriteBatch*     spriteBatch{};
     FontRenderer*    font{};
     UIRenderer*      ui{};
+    GlassRenderer*   glass{};
     PianoRenderer*   piano{};
     NoteState*       noteState{};
     SoundFontEngine* audio{};

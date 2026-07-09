@@ -28,11 +28,23 @@ public:
 
     ID3D11ShaderResourceView* CaptureScreen();
 
+    // ── Frosted Glass: mipmap scene capture ──
+    // Captures the back buffer and generates mipmaps for glass blur.
+    // The glass shader samples at textureLod() equivalent via SampleLevel().
+    ID3D11ShaderResourceView* CaptureSceneForGlass();
+    // Returns max available mip level (for LOD clamping)
+    float GetSceneMaxLOD() const { return m_sceneMipLevels > 0 ? (float)(m_sceneMipLevels - 1) : 0.0f; }
+
 private:
     void CreateDepthStencil(uint32_t w, uint32_t h);
     
     ComPtr<ID3D11Texture2D>          m_sceneCopyTex;
     ComPtr<ID3D11ShaderResourceView> m_sceneCopySRV;
+
+    // Frosted Glass: mipmapped scene texture
+    ComPtr<ID3D11Texture2D>          m_glassSceneTex;
+    ComPtr<ID3D11ShaderResourceView> m_glassSceneSRV;
+    int m_sceneMipLevels = 0;
 
     ComPtr<ID3D11Device>           m_device;
     ComPtr<ID3D11DeviceContext>     m_context;

@@ -51,6 +51,10 @@ bool GameLoop::Initialize(HINSTANCE hInstance, int nCmdShow) {
              // Not fatal, but good to know
         }
     }
+    if (!m_glass.Initialize(m_d3d.Device())) {
+        MessageBoxW(nullptr, L"Failed: GlassRenderer.Initialize", L"Init Error", MB_OK);
+        return false;
+    }
     m_audio.Initialize();
     TryAutoLoadSoundFont();
 
@@ -63,6 +67,7 @@ bool GameLoop::Initialize(HINSTANCE hInstance, int nCmdShow) {
     m_ctx.spriteBatch = &m_spriteBatch;
     m_ctx.font        = &m_font;
     m_ctx.ui          = &m_ui;
+    m_ctx.glass       = &m_glass;
     m_ctx.piano       = &m_piano;
     m_ctx.noteState   = &m_noteState;
     m_ctx.audio       = &m_audio;

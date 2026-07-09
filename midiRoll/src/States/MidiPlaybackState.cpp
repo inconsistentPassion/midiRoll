@@ -1,5 +1,6 @@
 #include "MidiPlaybackState.h"
 #include "StateHelpers.h"
+#include "../Renderer/FrostedGlassTheme.h"
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
@@ -220,23 +221,39 @@ Transition MidiPlaybackState::Update(Context& ctx, double dt) {
 
 void MidiPlaybackState::Render(Context& ctx) {
     auto& batch = *ctx.spriteBatch;
+    auto& ui = *ctx.ui;
     int vw = ctx.window->Width();
     int vh = ctx.window->Height();
 
+    // ── Phase 1: Render game world (piano, notes, background) via SpriteBatch ──
     batch.Begin(ctx.d3d->Context(), vw, vh);
 
     if (m_backgroundTex) {
         batch.Draw({0, 0}, {(float)vw, (float)vh}, m_backgroundTex.Get(), {0,0}, {1,1}, {1,1,1,1});
-        // Apply dimming overlay
         batch.Draw({0, 0}, {(float)vw, (float)vh}, {0, 0, 0, m_backgroundDim});
     } else {
-        batch.Draw({0, 0}, {(float)vw, (float)vh}, {0.02f, 0.02f, 0.04f, 1.0f});
+        auto& T = glass::GetTheme();
+        batch.Draw({0, 0}, {(float)vw, (float)vh}, {T.bgColor.x, T.bgColor.y, T.bgColor.z, 1.0f});
     }
 
     if (ctx.midiLoaded) {
         ctx.piano->Render(batch, *ctx.noteState, ctx.midi->Notes(),
                           (float)m_playbackTime, (float)m_playbackTime, ctx.deltaTime,
                           ctx.d3d->Context());
+    }
+    batch.End();
+
+    // ── Phase 2: Capture scene + generate mipmaps for glass blur ──
+    auto* sceneSRV = ctx.d3d->CaptureSceneForGlass();
+    float maxLOD = ctx.d3d->GetSceneMaxLOD();
+
+    // ── Phase 3: Render background blobs ──
+    ctx.glass->Render(ctx.d3d->Context(), vw, vh, (float)m_playbackTime);
+
+    // ── Phase 4: Render glass UI overlay ──
+    ui.Begin(ctx.d3d->Context(), vw, vh, sceneSRV, maxLOD);
+
+    if (ctx.midiLoaded) {
         if (m_showUI) {
             DrawTimeline(ctx);
             DrawControls(ctx);
@@ -247,28 +264,25 @@ void MidiPlaybackState::Render(Context& ctx) {
 
     // FPS (only when UI visible)
     if (m_showUI) {
+        auto& T = glass::GetTheme();
         char buf[32];
         std::snprintf(buf, sizeof(buf), "FPS: %d", m_fpsDisplay);
-        ctx.font->DrawText(batch, buf, 10, 10, 0.4f, 0.4f, 0.5f, 0.55f);
+        ui.DrawText(buf, 10, 10, T.textMuted, 0.55f);
     }
 
-    // Capture screen for blur before drawing pause menu overlay
-    ID3D11ShaderResourceView* screenTex = nullptr;
+    // Pause menu on top (glass version)
     if (m_pause.IsOpen()) {
-        batch.End();
-        screenTex = ctx.d3d->CaptureScreen();
-        batch.Begin(ctx.d3d->Context(), vw, vh);
+        // Flush glass before drawing pause menu
+        ui.FlushGlass();
+        m_pause.RenderGlass(ui, vw, vh, sceneSRV, maxLOD);
     }
 
-    // Pause menu on top
-    m_pause.Render(batch, *ctx.font, ctx.piano->GetNoteTex(), vw, vh, screenTex);
-
-    batch.End();
+    ui.End();
 }
 
 void MidiPlaybackState::DrawTimeline(Context& ctx) {
-    auto& batch = *ctx.spriteBatch;
-    auto& font = *ctx.font;
+    auto& ui = *ctx.ui;
+    auto& T = glass::GetTheme();
     int vw = ctx.window->Width();
     int vh = ctx.window->Height();
 
@@ -280,65 +294,68 @@ void MidiPlaybackState::DrawTimeline(Context& ctx) {
     float leadIn = 3.0f;
     float tailBuf = 3.0f;
     float totalDuration = (float)ctx.midi->Duration() + leadIn + tailBuf;
-    
     float progress = (totalDuration > 0)
         ? (float)((m_playbackTime + leadIn) / totalDuration) : 0;
     progress = std::clamp(progress, 0.0f, 1.0f);
 
-    batch.Draw({tlX, tlY}, {tlW, tlH}, {0.1f, 0.1f, 0.15f, 0.8f});
-    batch.Draw({tlX, tlY}, {tlW * progress, tlH}, {0.3f, 0.6f, 1.0f, 0.9f});
+    // Track background — glass material
+    ui.DrawRect(tlX, tlY, tlW, tlH, {1, 1, 1, 0.08f}, tlH * 0.5f);
 
-    batch.SetBlendMode(true);
-    batch.Draw({tlX + tlW * progress - 5, tlY - 3}, {10, tlH + 6}, {0.5f, 0.8f, 1.0f, 0.8f});
-    batch.SetBlendMode(false);
+    // Progress fill — accent blue
+    ui.DrawRect(tlX, tlY, tlW * progress, tlH, {T.accentBlue.x, T.accentBlue.y, T.accentBlue.z, 0.7f}, tlH * 0.5f);
 
+    // Thumb — glass highlight
+    ui.DrawRect(tlX + tlW * progress - 5, tlY - 3, 10, tlH + 6,
+                {T.accentBlue.x, T.accentBlue.y, T.accentBlue.z, 0.6f}, 5.0f);
+
+    // Time labels
     auto formatTime = [](double secs) -> std::string {
         int m = (int)(secs / 60), s = (int)secs % 60;
         char buf[16]; std::snprintf(buf, sizeof(buf), "%d:%02d", m, s); return buf;
     };
-    font.DrawText(batch, formatTime(m_playbackTime), 10, tlY - 5, 0.5f, 0.5f, 0.6f, 0.55f);
-    font.DrawText(batch, formatTime(ctx.midi->Duration()), vw - 60.0f, tlY - 5, 0.5f, 0.5f, 0.6f, 0.55f);
+    ui.DrawText(formatTime(m_playbackTime), 10, tlY - 5, T.textSecondary, 0.55f);
+    ui.DrawText(formatTime(ctx.midi->Duration()), vw - 60.0f, tlY - 5, T.textSecondary, 0.55f);
 
     if (!ctx.midiFilePath.empty()) {
         std::filesystem::path p(ctx.midiFilePath);
-        font.DrawText(batch, p.filename().string(), 10, 30, 0.4f, 0.5f, 0.6f, 0.55f);
+        ui.DrawText(p.filename().string(), 10, 30, T.textMuted, 0.55f);
     }
 }
 
 void MidiPlaybackState::DrawControls(Context& ctx) {
-    auto& font = *ctx.font;
-    auto& batch = *ctx.spriteBatch;
+    auto& ui = *ctx.ui;
+    auto& T = glass::GetTheme();
     int vw = ctx.window->Width();
     int vh = ctx.window->Height();
     float cy = (float)vh - ctx.piano->GetPianoHeight() - 65.0f;
     float cx = (float)vw * 0.5f;
 
     const char* playLabel = m_playing ? "PAUSE" : "PLAY";
-    float pw = font.GetTextWidth(playLabel, 0.7f);
-    font.DrawText(batch, playLabel, cx - pw * 0.5f, cy, 0.4f, 0.8f, 0.4f, 0.7f);
+    float pw = ui.GetTextWidth(playLabel, 0.7f);
+    ui.DrawText(playLabel, cx - pw * 0.5f, cy, T.accentGreen, 0.7f);
 
     const char* loopLabel = m_loop ? "LOOP: ON" : "LOOP: OFF";
-    font.DrawText(batch, loopLabel, vw - 120.0f, cy,
-                  m_loop ? 0.3f : 0.5f, m_loop ? 0.7f : 0.4f, m_loop ? 0.4f : 0.4f, 0.55f);
+    ui.DrawText(loopLabel, vw - 120.0f, cy,
+                m_loop ? T.accentGreen : T.textMuted, 0.55f);
 
     const char* hint = "Space: Play/Pause  |  L: Loop  |  H: Hide UI  |  Left/Right: Seek  |  ESC: Menu";
-    float hw = font.GetTextWidth(hint, 0.45f);
-    font.DrawText(batch, hint, (vw - hw) * 0.5f, cy + 20, 0.25f, 0.25f, 0.35f, 0.45f);
+    float hw = ui.GetTextWidth(hint, 0.45f);
+    ui.DrawText(hint, (vw - hw) * 0.5f, cy + 20, T.textMuted, 0.45f);
 }
 
 void MidiPlaybackState::DrawLoadPrompt(Context& ctx) {
-    auto& font = *ctx.font;
-    auto& batch = *ctx.spriteBatch;
+    auto& ui = *ctx.ui;
+    auto& T = glass::GetTheme();
     int vw = ctx.window->Width();
     int vh = ctx.window->Height();
 
     const char* msg = "No MIDI file loaded";
-    float mw = font.GetTextWidth(msg, 1.0f);
-    font.DrawText(batch, msg, (vw - mw) * 0.5f, vh * 0.4f, 0.5f, 0.5f, 0.6f, 1.0f);
+    float mw = ui.GetTextWidth(msg, 1.0f);
+    ui.DrawText(msg, (vw - mw) * 0.5f, vh * 0.4f, T.textPrimary, 1.0f);
 
     const char* hint = "Press O to open a MIDI file  |  ESC: Menu";
-    float hw = font.GetTextWidth(hint, 0.7f);
-    font.DrawText(batch, hint, (vw - hw) * 0.5f, vh * 0.4f + 35, 0.3f, 0.5f, 0.8f, 0.7f);
+    float hw = ui.GetTextWidth(hint, 0.7f);
+    ui.DrawText(hint, (vw - hw) * 0.5f, vh * 0.4f + 35, T.accentBlue, 0.7f);
 }
 
 Transition MidiPlaybackState::OnKey(Context& ctx, int key, bool down) {

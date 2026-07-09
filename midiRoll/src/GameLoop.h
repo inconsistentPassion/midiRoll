@@ -4,6 +4,7 @@
 #include "Renderer/SpriteBatch.h"
 #include "Renderer/FontRenderer.h"
 #include "Renderer/UIRenderer.h"
+#include "Renderer/GlassRenderer.h"
 #include "Piano/PianoRenderer.h"
 #include "Piano/NoteState.h"
 #include "Audio/SoundFontEngine.h"
@@ -37,6 +38,7 @@ private:
     SpriteBatch     m_spriteBatch;
     FontRenderer    m_font;
     UIRenderer      m_ui;
+    GlassRenderer   m_glass;
     PianoRenderer   m_piano;
     NoteState       m_noteState;
     SoundFontEngine m_audio;

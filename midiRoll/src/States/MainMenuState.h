@@ -1,6 +1,8 @@
 #pragma once
 #include "AppState.h"
 #include "../Renderer/UIRenderer.h"
+#include "../Renderer/GlassRenderer.h"
+#include "../Renderer/FrostedGlassTheme.h"
 #include "../Util/Color.h"
 #include <array>
 #include <string>

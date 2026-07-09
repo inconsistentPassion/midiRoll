@@ -18,22 +18,10 @@ namespace pfd {
 // ═════════════════════════════════════════════════════════════════════════════
 
 namespace {
-    // Colors
-    const util::Vec4 COL_BG          = {0.015f, 0.015f, 0.035f, 1.0f};
-    const util::Vec4 COL_TITLE       = {1.0f, 1.0f, 1.0f, 1.0f};
-    const util::Vec4 COL_SUBTITLE    = {0.65f, 0.65f, 0.75f, 1.0f};
-    const util::Vec4 COL_GLASS_BG    = {0.08f, 0.08f, 0.14f, 0.65f};
-    const util::Vec4 COL_GLASS_BORDER= {1.0f, 1.0f, 1.0f, 0.12f};
-    const util::Vec4 COL_CARD_BG     = {0.06f, 0.06f, 0.10f, 0.70f};
-    const util::Vec4 COL_CARD_BORDER = {1.0f, 1.0f, 1.0f, 0.08f};
-    const util::Vec4 COL_BOTTOM_BTN  = {0.07f, 0.07f, 0.12f, 0.70f};
-    const util::Vec4 COL_BOTTOM_BORD = {1.0f, 1.0f, 1.0f, 0.10f};
-    const util::Vec4 COL_HINT        = {0.45f, 0.45f, 0.55f, 0.7f};
-    const util::Vec4 COL_GPU_STATUS  = {0.35f, 0.35f, 0.45f, 0.5f};
-    const util::Vec4 COL_LINK        = {0.6f, 0.6f, 0.7f, 0.7f};
-    const util::Vec4 COL_HOVER_GLOW  = {0.3f, 0.6f, 1.0f, 0.15f};
+    // Frosted Glass theme colors
+    auto& T = glass::GetTheme();
 
-    // Button accent colors
+    // Button accent colors (kept for identity, applied as tinted glass)
     const util::Vec4 COL_FREEPLAY    = {0.3f, 0.8f, 1.0f, 1.0f};
     const util::Vec4 COL_OPENMIDI    = {1.0f, 0.6f, 0.2f, 1.0f};
     const util::Vec4 COL_SOUNDFONT   = {0.8f, 0.7f, 0.4f, 1.0f};
@@ -125,9 +113,27 @@ void MainMenuState::Render(Context& ctx) {
     // Rebuild layout on resize
     if (vw != m_lastW || vh != m_lastH) RebuildLayout(vw, vh);
 
+    // ── Phase 1: Render background (solid base + falling notes + glow) ──
+    // This is the "game world" that glass will refract.
     ui.Begin(ctx.d3d->Context(), vw, vh);
-
     DrawBackground(ctx);
+    ui.End();
+
+    // ── Phase 2: Capture scene + generate mipmaps for glass blur ──
+    // The mipmap-stacking approach: each mip level is already a blurred
+    // version of the previous. SampleLevel(scene, uv, 3.0) = 1/8 res blur.
+    // Cost: ~0.05ms. All glass elements share ONE generation per frame.
+    auto* sceneSRV = ctx.d3d->CaptureSceneForGlass();
+    float maxLOD = ctx.d3d->GetSceneMaxLOD();
+
+    // ── Phase 3: Render background blobs (colored circles for glass to refract) ──
+    // Glass over solid black is invisible. Blobs provide color.
+    ctx.glass->Render(ctx.d3d->Context(), vw, vh, m_titleAnim);
+
+    // ── Phase 4: Render glass UI ──
+    // Begin with scene texture for glass blur
+    ui.Begin(ctx.d3d->Context(), vw, vh, sceneSRV, maxLOD);
+
     DrawRecentProjects(ctx);
     DrawMainButtons(ctx);
     DrawTitle(ctx);
@@ -137,7 +143,7 @@ void MainMenuState::Render(Context& ctx) {
     // Fade-in overlay
     if (m_enterAnim > 0.01f) {
         ui.DrawRect(0, 0, (float)vw, (float)vh,
-                    {COL_BG.x, COL_BG.y, COL_BG.z, m_enterAnim});
+                    {T.bgColor.x, T.bgColor.y, T.bgColor.z, m_enterAnim});
     }
 
     ui.End();
@@ -150,23 +156,10 @@ void MainMenuState::DrawBackground(Context& ctx) {
     int vw = ctx.window->Width();
     int vh = ctx.window->Height();
 
-    // Full-screen dark base
-    ui.DrawRect(0, 0, (float)vw, (float)vh, COL_BG);
+    // Full-screen dark base (Frosted Glass near-black)
+    ui.DrawRect(0, 0, (float)vw, (float)vh, T.bgColor);
 
-    // Subtle radial glow in center-left area (simulated with a large dim rect)
-    float glowX = vw * 0.3f;
-    float glowY = vh * 0.35f;
-    float glowW = 600.0f + std::sinf(m_titleAnim * 0.4f) * 40.0f;
-    float glowH = 400.0f;
-    UIRenderer::RectStyle glowStyle;
-    glowStyle.color = util::Vec4{0.04f, 0.08f, 0.18f, 0.2f};
-    glowStyle.cornerRadius = glowW; // full round
-    glowStyle.glowSize = 80.0f;
-    glowStyle.glowIntensity = 0.3f;
-    glowStyle.borderColor = util::Vec4{0.1f, 0.3f, 0.6f, 0.15f};
-    ui.DrawRect(glowX - glowW * 0.5f, glowY - glowH * 0.5f, glowW, glowH, glowStyle);
-
-    // Falling background notes (colored rectangles, simulating GPUNoteSystem)
+    // Falling background notes (colored rectangles — provide color for glass to refract)
     for (auto& n : m_bgNotes) {
         UIRenderer::RectStyle ns;
         ns.color = {n.color.r, n.color.g, n.color.b, n.alpha * 0.25f};
@@ -187,14 +180,14 @@ void MainMenuState::DrawTitle(Context& ctx) {
     float titleX = (float)vw * 0.06f;
     float titleY = 50.0f + std::sinf(m_titleAnim * 1.2f) * 4.0f;
 
-    // "midiRoll" — large, with glow
+    // "midiRoll" — large, with glow (Frosted Glass text hierarchy)
     ui.DrawTextWithGlow("midiRoll", titleX, titleY,
-                        COL_TITLE, {0.2f, 0.5f, 1.0f, 0.8f},
+                        T.textPrimary, {0.2f, 0.5f, 1.0f, 0.8f},
                         6.0f, 0.5f, 3.0f);
 
     // Subtitle
     ui.DrawText("A MIDI Piano Visualizer",
-                titleX, titleY + 52.0f, COL_SUBTITLE, 0.8f);
+                titleX, titleY + 52.0f, T.textSecondary, 0.8f);
 }
 
 // ── Main buttons (FREE PLAY + OPEN MIDI) ────────────────────────────────────
@@ -205,60 +198,60 @@ void MainMenuState::DrawMainButtons(Context& ctx) {
     for (int i = 0; i <= (int)ButtonID::OpenMidi; i++) {
         auto& btn = m_buttons[i];
         float h = btn.hoverAnim;
-        float p = btn.pressAnim; // Press animation
+        float p = btn.pressAnim;
         bool focused = (m_focused == (ButtonID)i);
 
         // Press animation: scale down slightly when pressed
-        float scale = 1.0f - p * 0.05f; // Scale down by 5% when pressed
-        float scaledW = btn.w * scale;
-        float scaledH = btn.h * scale;
+        float scale = 1.0f - p * T.pressScale + T.pressScale; // 0.97 on press
+        float actualScale = 1.0f - p * 0.05f;
+        float scaledW = btn.w * actualScale;
+        float scaledH = btn.h * actualScale;
         float offsetX = (btn.w - scaledW) * 0.5f;
         float offsetY = (btn.h - scaledH) * 0.5f;
 
-        // Glassmorphic button background
-        UIRenderer::RectStyle style;
-        style.color = util::Vec4( // use constructor
-            COL_GLASS_BG.x + h * 0.04f - p * 0.03f,
-            COL_GLASS_BG.y + h * 0.04f - p * 0.03f,
-            COL_GLASS_BG.z + h * 0.06f - p * 0.04f,
-            COL_GLASS_BG.w
-        );
-        style.cornerRadius = 16.0f * scale;
-        style.borderWidth = 1.0f + p * 1.5f;
-        style.borderColor = util::Vec4( // use constructor
-            COL_GLASS_BORDER.x,
-            COL_GLASS_BORDER.y,
-            COL_GLASS_BORDER.z,
-            COL_GLASS_BORDER.w + h * 0.15f + p * 0.15f
-        );
-        style.glowSize = focused ? 20.0f + p * 10.0f : (h * 12.0f + p * 8.0f);
-        style.glowIntensity = focused ? 0.4f + p * 0.2f : (h * 0.3f + p * 0.2f);
+        // Hover lift (translateY -1px)
+        float liftY = h * T.hoverLiftY;
 
         util::Vec4 accent = (i == 0) ? COL_FREEPLAY : COL_OPENMIDI;
-        if (focused || h > 0.01f || p > 0.01f) {
-            style.borderColor = util::Vec4( // use constructor
-                accent.x * (0.3f + h * 0.5f + p * 0.2f),
-                accent.y * (0.3f + h * 0.5f + p * 0.2f),
-                accent.z * (0.3f + h * 0.5f + p * 0.2f),
-                0.2f + h * 0.3f + p * 0.2f
-            );
-        }
 
-        ui.DrawRect(btn.x + offsetX, btn.y + offsetY, scaledW, scaledH, style);
+        // ── Frosted Glass button ──
+        // Glass material with accent-tinted border on hover/focus
+        UIRenderer::RectStyle style;
+        style.color = util::Vec4(0, 0, 0, 0); // glass handles its own fill
+        style.cornerRadius = T.radiusMd;
+        style.borderWidth = 1.0f;
+        float borderA = T.glassBorderAlpha + h * (T.glassBorderHoverAlpha - T.glassBorderAlpha);
+        if (focused || h > 0.01f) {
+            style.borderColor = util::Vec4(
+                accent.x * (0.3f + h * 0.5f),
+                accent.y * (0.3f + h * 0.5f),
+                accent.z * (0.3f + h * 0.5f),
+                borderA
+            );
+        } else {
+            style.borderColor = util::Vec4(1, 1, 1, borderA);
+        }
+        style.glowSize = focused ? 16.0f : (h * 8.0f);
+        style.glowIntensity = focused ? 0.3f : (h * 0.2f);
+
+        // Draw glass panel (mipmap blur from scene texture)
+        float glassA = T.glassAlpha + h * (T.glassHoverAlpha - T.glassAlpha);
+        ui.DrawGlass(btn.x + offsetX, btn.y + offsetY + liftY, scaledW, scaledH,
+                     style, T.blurLOD, glassA);
 
         // Accent bar on left edge (for focused button)
         if (focused) {
-            float barHeight = (scaledH - 24) * scale;
-            ui.DrawRect(btn.x + offsetX + 6, btn.y + offsetY + 12, 3, barHeight,
+            float barHeight = scaledH - 24;
+            ui.DrawRect(btn.x + offsetX + 6, btn.y + offsetY + liftY + 12, 3, barHeight,
                         {accent.x, accent.y, accent.z, 0.9f}, 1.5f);
         }
 
         // Button label — centered with adaptive scaling
         const char* label = (i == 0) ? "FREE PLAY" : "OPEN MIDI";
-        float textScale = 1.1f * scale;
+        float textScale = 1.1f * actualScale;
         float tw = ui.GetTextWidth(label, textScale);
         float tx = btn.x + offsetX + (scaledW - tw) * 0.5f;
-        float ty = btn.y + offsetY + (scaledH - ui.GetLineHeight(textScale)) * 0.5f;
+        float ty = btn.y + offsetY + liftY + (scaledH - ui.GetLineHeight(textScale)) * 0.5f;
 
         float bright = focused ? 1.0f : (0.8f + h * 0.2f);
         ui.DrawText(label, tx, ty,
@@ -274,75 +267,65 @@ void MainMenuState::DrawRecentProjects(Context& ctx) {
     int vw = ctx.window->Width();
     int vh = ctx.window->Height();
 
-    // Section header with adaptive scaling
+    // Section header — Frosted Glass text hierarchy
     float headerX = (float)vw * 0.52f;
     float headerY = 55.0f;
     float headerScale = std::min(1.2f, std::max(0.8f, (float)vh / 1080.0f));
-    ui.DrawText("Recent Projects", headerX, headerY, {0.9f, 0.9f, 0.95f, 0.9f}, headerScale);
+    ui.DrawText("Recent Projects", headerX, headerY, T.textPrimary, headerScale);
 
-    // Responsive card sizing based on aspect ratio and available space
+    // Responsive card sizing
     float cardX = headerX;
     float cardY = headerY + 45.0f * headerScale;
     float cardW = (float)vw * 0.42f;
     float baseCardH = 170.0f;
-    
-    // Adjust card height based on viewport height (responsive)
     float heightFactor = std::min(1.0f, std::max(0.7f, (float)vh / 1080.0f));
     float cardH = baseCardH * heightFactor;
     float cardGap = 14.0f;
-    
-    // Calculate visible area for projects
-    float availableHeight = (float)vh - cardY - 100.0f; // Leave space for bottom bar
+
+    float availableHeight = (float)vh - cardY - 100.0f;
     m_maxVisibleProjects = std::max(2, std::min(5, (int)(availableHeight / (cardH + cardGap))));
-    
-    // Apply scroll offset
     float visibleStartY = cardY - m_projectScrollOffset;
 
     for (int i = 0; i < (int)m_recentProjects.size(); i++) {
         auto& proj = m_recentProjects[i];
         float cy = visibleStartY + i * (cardH + cardGap);
-        
-        // Skip if outside visible area
         if (cy + cardH < 0 || cy > (float)vh) continue;
 
-        // Hover expansion effect
-        float expansion = proj.hoverAnim * 8.0f; // Expand by 8px on hover
+        // Hover expansion
+        float expansion = proj.hoverAnim * 8.0f;
         float expandedW = cardW + expansion * 2;
         float expandedH = cardH + expansion;
         float expandedX = cardX - expansion;
         float expandedY = cy - expansion * 0.5f;
 
-        // Card background with glow on hover
-        UIRenderer::RectStyle cardStyle;
-        cardStyle.color = util::Vec4(
-            COL_CARD_BG.x + proj.hoverAnim * 0.03f,
-            COL_CARD_BG.y + proj.hoverAnim * 0.03f,
-            COL_CARD_BG.z + proj.hoverAnim * 0.04f,
-            COL_CARD_BG.w
-        );
-        cardStyle.cornerRadius = 14.0f;
-        cardStyle.borderWidth = 1.0f + proj.hoverAnim * 1.0f;
-        cardStyle.borderColor = util::Vec4(
-            COL_CARD_BORDER.x,
-            COL_CARD_BORDER.y,
-            COL_CARD_BORDER.z,
-            COL_CARD_BORDER.w + proj.hoverAnim * 0.15f
-        );
-        cardStyle.glowSize = proj.hoverAnim * 15.0f;
-        cardStyle.glowIntensity = proj.hoverAnim * 0.25f;
-        ui.DrawRect(expandedX, expandedY, expandedW, expandedH, cardStyle);
+        // Hover lift
+        float liftY = proj.hoverAnim * T.hoverLiftY;
 
-        // Project name + date with adaptive scaling
+        // ── Frosted Glass card ──
+        UIRenderer::RectStyle cardStyle;
+        cardStyle.color = util::Vec4(0, 0, 0, 0);
+        cardStyle.cornerRadius = T.radiusMd;
+        cardStyle.borderWidth = 1.0f;
+        float borderA = T.glassBorderAlpha + proj.hoverAnim * (T.glassBorderHoverAlpha - T.glassBorderAlpha);
+        cardStyle.borderColor = util::Vec4(1, 1, 1, borderA);
+        cardStyle.glowSize = proj.hoverAnim * 12.0f;
+        cardStyle.glowIntensity = proj.hoverAnim * 0.2f;
+
+        float glassA = T.glassAlpha + proj.hoverAnim * (T.glassHoverAlpha - T.glassAlpha);
+        ui.DrawGlass(expandedX, expandedY + liftY, expandedW, expandedH,
+                     cardStyle, T.blurLOD, glassA);
+
+        // Project name + date
         float textScale = std::min(0.85f, std::max(0.65f, heightFactor));
         float dateScale = std::min(0.6f, std::max(0.5f, heightFactor));
-        ui.DrawText(proj.name, expandedX + 16, expandedY + 12, 
-                    {0.95f, 0.95f, 1.0f, 0.95f}, textScale);
-        ui.DrawText(proj.date, expandedX + 16, expandedY + 32, 
-                    {0.5f, 0.5f, 0.55f, 0.7f}, dateScale);
+        ui.DrawText(proj.name, expandedX + 16, expandedY + liftY + 12,
+                    T.textPrimary, textScale);
+        ui.DrawText(proj.date, expandedX + 16, expandedY + liftY + 32,
+                    T.textMuted, dateScale);
 
-        // Mini piano roll preview (colored note blocks inside a dark area)
+        // Mini piano roll preview
         float previewX = expandedX + 16;
-        float previewY = expandedY + 55 * heightFactor;
+        float previewY = expandedY + liftY + 55 * heightFactor;
         float previewW = expandedW - 32;
         float previewH = 80.0f * heightFactor;
 
@@ -350,7 +333,7 @@ void MainMenuState::DrawRecentProjects(Context& ctx) {
         ui.DrawRect(previewX, previewY, previewW, previewH,
                     {0.03f, 0.03f, 0.05f, 0.8f}, 8.0f);
 
-        // Fake note blocks
+        // Note blocks
         for (auto& note : proj.notes) {
             float nx = previewX + note.x * previewW;
             float ny = previewY + note.y * previewH;
@@ -365,21 +348,21 @@ void MainMenuState::DrawRecentProjects(Context& ctx) {
             ui.DrawRect(nx, ny, nw, nh, ns);
         }
 
-        // Project name at bottom (small, dim)
-        ui.DrawText(proj.name, expandedX + 16, expandedY + expandedH - 22 * heightFactor,
-                    {0.4f, 0.4f, 0.45f, 0.5f}, 0.55f * heightFactor);
+        // Project name at bottom
+        ui.DrawText(proj.name, expandedX + 16, expandedY + liftY + expandedH - 22 * heightFactor,
+                    T.textMuted, 0.55f * heightFactor);
     }
 
-    // Scroll indicator if more projects than visible
+    // Scroll indicator
     if ((int)m_recentProjects.size() > m_maxVisibleProjects) {
         float scrollBarX = cardX + cardW + 5;
         float scrollBarY = cardY;
         float scrollBarH = (float)m_maxVisibleProjects * (cardH + cardGap);
         float scrollThumbH = scrollBarH * ((float)m_maxVisibleProjects / (float)m_recentProjects.size());
         float scrollThumbY = scrollBarY + m_projectScrollOffset * (scrollBarH / ((float)m_recentProjects.size() * (cardH + cardGap)));
-        
-        ui.DrawRect(scrollBarX, scrollBarY, 4, scrollBarH, {0.2f, 0.2f, 0.25f, 0.3f}, 2.0f);
-        ui.DrawRect(scrollBarX, scrollThumbY, 4, scrollThumbH, {0.5f, 0.5f, 0.6f, 0.6f}, 2.0f);
+
+        ui.DrawRect(scrollBarX, scrollBarY, 4, scrollBarH, {1, 1, 1, 0.08f}, 2.0f);
+        ui.DrawRect(scrollBarX, scrollThumbY, 4, scrollThumbH, {1, 1, 1, 0.20f}, 2.0f);
     }
 
     // "VIEW ALL PROJECTS" link
@@ -387,7 +370,7 @@ void MainMenuState::DrawRecentProjects(Context& ctx) {
     if (linkY < (float)vh - 80) {
         float linkW = ui.GetTextWidth("VIEW ALL PROJECTS", 0.7f * heightFactor);
         ui.DrawText("VIEW ALL PROJECTS", headerX + (cardW - linkW) * 0.5f, linkY,
-                    COL_LINK, 0.7f * heightFactor);
+                    T.textMuted, 0.7f * heightFactor);
     }
 }
 
@@ -400,30 +383,23 @@ void MainMenuState::DrawBottomBar(Context& ctx) {
 
     float barY = (float)vh - 65.0f;
 
-    // GPU status (left) - adaptive scaling
+    // GPU status (left) — Frosted Glass text hierarchy
     float statusScale = std::min(0.55f, std::max(0.45f, (float)vh / 1080.0f));
-    ui.DrawText("GPU: NVIDIA RTX 4080", 20.0f, barY + 8, COL_GPU_STATUS, statusScale);
+    ui.DrawText("GPU: NVIDIA RTX 4080", 20.0f, barY + 8, T.textMuted, statusScale);
 
-    // Bottom buttons (right side) — SOUNDFONT / MIDI DEVICE / SETTINGS
-    // Dynamic sizing based on viewport width
+    // Bottom buttons — Frosted Glass style
     float baseBtnW = 110.0f;
     float baseBtnH = 40.0f;
     float btnGap = 10.0f;
-    
-    // Adjust button size based on viewport
     float widthFactor = std::min(1.0f, std::max(0.8f, (float)vw / 1920.0f));
     float btnW = baseBtnW * widthFactor;
     float btnH = baseBtnH * widthFactor;
-    
-    // Dynamic positioning - ensure buttons fit within viewport
+
     float totalW = 3 * btnW + 2 * btnGap;
     float startX;
-    
-    // If window is too narrow, reduce gap or button size
     if (totalW > vw * 0.6f) {
-        // Reduce button size to fit
         btnW = (vw * 0.6f - 2 * btnGap) / 3;
-        btnH = btnW * 0.36f; // Maintain aspect ratio
+        btnH = btnW * 0.36f;
         totalW = 3 * btnW + 2 * btnGap;
         startX = (float)vw - totalW - 20.0f;
     } else {
@@ -438,46 +414,44 @@ void MainMenuState::DrawBottomBar(Context& ctx) {
         float bx = startX + i * (btnW + btnGap);
         int bi = (int)ids[i];
         float h = m_buttons[bi].hoverAnim;
-        float p = m_buttons[bi].pressAnim; // Press animation
+        float p = m_buttons[bi].pressAnim;
         bool focused = (m_focused == ids[i]);
 
-        // Press animation: scale down slightly when pressed
-        float scale = 1.0f - p * 0.05f; // Scale down by 5% when pressed
+        float scale = 1.0f - p * 0.05f;
         float scaledW = btnW * scale;
         float scaledH = btnH * scale;
         float offsetX = (btnW - scaledW) * 0.5f;
         float offsetY = (btnH - scaledH) * 0.5f;
+        float liftY = h * T.hoverLiftY;
 
+        // ── Frosted Glass button ──
         UIRenderer::RectStyle bs;
-        bs.color = util::Vec4( // use constructor
-            COL_BOTTOM_BTN.x + h * 0.03f - p * 0.02f,
-            COL_BOTTOM_BTN.y + h * 0.03f - p * 0.02f,
-            COL_BOTTOM_BTN.z + h * 0.05f - p * 0.03f,
-            COL_BOTTOM_BTN.w
-        );
-        bs.cornerRadius = 10.0f * scale;
-        bs.borderWidth = 1.0f + p * 1.0f;
-        bs.borderColor = util::Vec4( // use constructor
-            COL_BOTTOM_BORD.x,
-            COL_BOTTOM_BORD.y,
-            COL_BOTTOM_BORD.z,
-            COL_BOTTOM_BORD.w + h * 0.1f + p * 0.1f
-        );
-        if (focused || p > 0.01f) {
-            bs.borderColor = {accents[i].x * (0.3f + h * 0.5f + p * 0.2f), 
-                             accents[i].y * (0.3f + h * 0.5f + p * 0.2f), 
-                             accents[i].z * (0.3f + h * 0.5f + p * 0.2f), 
-                             0.3f + p * 0.2f};
-            bs.glowSize = 10.0f + p * 10.0f;
-            bs.glowIntensity = 0.3f + p * 0.3f;
+        bs.color = util::Vec4(0, 0, 0, 0);
+        bs.cornerRadius = T.radiusSm;
+        bs.borderWidth = 1.0f;
+        float borderA = T.glassBorderAlpha + h * (T.glassBorderHoverAlpha - T.glassBorderAlpha);
+        if (focused || h > 0.01f) {
+            bs.borderColor = util::Vec4(
+                accents[i].x * (0.3f + h * 0.5f),
+                accents[i].y * (0.3f + h * 0.5f),
+                accents[i].z * (0.3f + h * 0.5f),
+                borderA
+            );
+        } else {
+            bs.borderColor = util::Vec4(1, 1, 1, borderA);
         }
-        ui.DrawRect(bx + offsetX, barY + offsetY, scaledW, scaledH, bs);
+        bs.glowSize = focused ? 10.0f : (h * 6.0f);
+        bs.glowIntensity = focused ? 0.25f : (h * 0.15f);
 
-        // Label with adaptive scaling
+        float glassA = T.glassAlpha + h * (T.glassHoverAlpha - T.glassAlpha);
+        ui.DrawGlass(bx + offsetX, barY + offsetY + liftY, scaledW, scaledH,
+                     bs, T.blurLOD, glassA);
+
+        // Label
         float textScale = 0.55f * widthFactor * scale;
         float tw = ui.GetTextWidth(labels[i], textScale);
         float tx = bx + offsetX + (scaledW - tw) * 0.5f;
-        float ty = barY + offsetY + (scaledH - ui.GetLineHeight(textScale)) * 0.5f;
+        float ty = barY + offsetY + liftY + (scaledH - ui.GetLineHeight(textScale)) * 0.5f;
         float bright = focused ? 1.0f : (0.7f + h * 0.3f);
         ui.DrawText(labels[i], tx, ty,
                     {accents[i].x * bright, accents[i].y * bright, accents[i].z * bright, 0.85f},
@@ -965,7 +939,7 @@ void MainMenuState::DrawHint(Context& ctx) {
 
     const char* hint = "Arrow keys / mouse to navigate  |  Enter to select";
     float hw = ui.GetTextWidth(hint, 0.6f);
-    ui.DrawText(hint, ((float)vw - hw) * 0.5f, (float)vh - 20.0f, COL_HINT, 0.6f);
+    ui.DrawText(hint, ((float)vw - hw) * 0.5f, (float)vh - 20.0f, T.textMuted, 0.6f);
 }
 
 } // namespace pfd

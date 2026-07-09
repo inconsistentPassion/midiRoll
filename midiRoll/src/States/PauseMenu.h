@@ -1,5 +1,7 @@
 #pragma once
 #include "AppState.h"
+#include "../Renderer/UIRenderer.h"
+#include "../Renderer/FrostedGlassTheme.h"
 #include "../Util/Color.h"
 #include <array>
 
@@ -40,103 +42,95 @@ public:
         return PauseAction::None;
     }
 
-    void Render(SpriteBatch& batch, FontRenderer& font, ID3D11ShaderResourceView* noteTex,
-                int viewW, int viewH, ID3D11ShaderResourceView* screenTex = nullptr) {
+    // ── Frosted Glass render ──
+    void RenderGlass(UIRenderer& ui, int viewW, int viewH,
+                     ID3D11ShaderResourceView* sceneSRV, float maxLOD) {
         if (!m_open) return;
 
-        if (screenTex) {
-            batch.SetTexture(screenTex);
-            batch.SetBlendMode(false);
-            // Draw opaque center to cover the sharp scene behind
-            batch.Draw({0, 0}, {(float)viewW, (float)viewH}, {1,1,1,1});
-            
-            // Draw offsets to create a cheap box blur
-            float offsets[] = { -6.0f, -3.0f, 3.0f, 6.0f };
-            for (float ox : offsets) {
-                for (float oy : offsets) {
-                    batch.Draw({ox, oy}, {(float)viewW, (float)viewH}, {1,1,1,0.06f});
-                }
-            }
-        }
+        auto& T = glass::GetTheme();
 
-        batch.SetTexture(nullptr);
-        // Dark semi-transparent overlay
-        batch.Draw({0, 0}, {(float)viewW, (float)viewH}, {0.0f, 0.0f, 0.02f, 0.6f});
+        // Dimming overlay
+        ui.DrawRect(0, 0, (float)viewW, (float)viewH, {T.bgColor.x, T.bgColor.y, T.bgColor.z, 0.6f});
 
-        // Calculate panel height dynamically based on items
+        // Panel dimensions
         float btnW = 340.0f, btnH = 40.0f;
         float gap = 8.0f;
-        float padding = 60.0f; // top + bottom padding
+        float padding = 60.0f;
         float headerH = 50.0f;
-        float footerH = 35.0f; // space for keyboard hints
+        float footerH = 35.0f;
         float contentH = m_items.size() * btnH + (m_items.size() - 1) * gap;
         float panelH = padding + headerH + contentH + footerH;
         float panelW = 420.0f;
         float panelX = (viewW - panelW) * 0.5f;
         float panelY = (viewH - panelH) * 0.5f;
 
-        // Panel background with subtle gradient
-        drawRounded(batch, noteTex, panelX, panelY, panelW, panelH, {0.04f, 0.04f, 0.07f, 0.98f});
-        
-        // Add inner glow for depth
-        batch.SetBlendMode(true);
-        drawRounded(batch, noteTex, panelX + 2, panelY + 2, panelW - 4, panelH - 4, 
-                   {0.1f, 0.15f, 0.25f, 0.1f});
-        batch.SetBlendMode(false);
+        // ── Glass panel ──
+        UIRenderer::RectStyle panelStyle;
+        panelStyle.color = util::Vec4(0, 0, 0, 0);
+        panelStyle.cornerRadius = T.radiusXl;
+        panelStyle.borderWidth = 1.0f;
+        panelStyle.borderColor = util::Vec4(1, 1, 1, T.glassBorderAlpha);
+        ui.DrawGlass(panelX, panelY, panelW, panelH, panelStyle, T.blurLOD, T.glassAlpha);
 
-        // Header with decorative line
-        font.DrawText(batch, "PAUSED", panelX + 30, panelY + 20, 0.6f, 0.85f, 1.0f, 1.1f);
-        batch.Draw({panelX + 30, panelY + 55}, {panelW - 60, 1}, {0.3f, 0.5f, 0.8f, 0.3f});
+        // Header
+        ui.DrawText("PAUSED", panelX + 30, panelY + 20, T.textPrimary, 1.1f);
+        ui.DrawRect(panelX + 30, panelY + 55, panelW - 60, 1,
+                    {T.accentBlue.x, T.accentBlue.y, T.accentBlue.z, 0.3f}, 0.5f);
 
         // Buttons
         float startY = panelY + 70.0f;
-        float btnX = panelX + (panelW - btnW) * 0.5f; // center buttons in panel
+        float btnX = panelX + (panelW - btnW) * 0.5f;
 
         for (int i = 0; i < (int)m_items.size(); i++) {
             float y = startY + i * (btnH + gap);
             float x = btnX;
             bool isSel = (i == m_selected);
             float h = m_items[i].hoverAnim;
+            float liftY = h * T.hoverLiftY;
 
-            // Button bg with hover effect
-            util::Color bg = {0.06f + h * 0.06f, 0.06f + h * 0.08f, 0.10f + h * 0.12f, 0.9f};
-            drawRounded(batch, noteTex, x, y, btnW, btnH, bg);
+            // ── Glass button ──
+            UIRenderer::RectStyle bs;
+            bs.color = util::Vec4(0, 0, 0, 0);
+            bs.cornerRadius = T.radiusMd;
+            bs.borderWidth = 1.0f;
+            float borderA = T.glassBorderAlpha + h * (T.glassBorderHoverAlpha - T.glassBorderAlpha);
+            if (isSel || h > 0.01f) {
+                bs.borderColor = util::Vec4(
+                    m_items[i].color.r * (0.3f + h * 0.5f),
+                    m_items[i].color.g * (0.3f + h * 0.5f),
+                    m_items[i].color.b * (0.3f + h * 0.5f),
+                    borderA
+                );
+            } else {
+                bs.borderColor = util::Vec4(1, 1, 1, borderA);
+            }
+            bs.glowSize = isSel ? 10.0f : (h * 6.0f);
+            bs.glowIntensity = isSel ? 0.25f : (h * 0.15f);
 
-            // Selection bar with glow
+            float glassA = T.glassAlpha + h * (T.glassHoverAlpha - T.glassAlpha);
+            ui.DrawGlass(x, y + liftY, btnW, btnH, bs, T.blurLOD, glassA);
+
+            // Selection accent bar
             if (isSel) {
-                batch.SetBlendMode(true);
-                batch.Draw({x + 6, y + 8}, {3.0f, btnH - 16},
-                           {m_items[i].color.r, m_items[i].color.g, m_items[i].color.b, 1.0f});
-                batch.Draw({x + 6, y + 8}, {3.0f, btnH - 16},
-                           {m_items[i].color.r * 0.5f, m_items[i].color.g * 0.5f, m_items[i].color.b * 0.5f, 0.5f});
-                batch.SetBlendMode(false);
+                ui.DrawRect(x + 6, y + liftY + 8, 3, btnH - 16,
+                            {m_items[i].color.r, m_items[i].color.g, m_items[i].color.b, 0.9f}, 1.5f);
             }
 
-            // Hover glow
-            if (h > 0.01f) {
-                batch.SetBlendMode(true);
-                drawRounded(batch, noteTex, x, y, btnW, btnH,
-                            {m_items[i].color.r * h * 0.15f, m_items[i].color.g * h * 0.15f,
-                             m_items[i].color.b * h * 0.15f, h * 0.3f});
-                batch.SetBlendMode(false);
-            }
-
-            // Label - centered
-            float labelW = font.GetTextWidth(m_items[i].label.c_str(), 0.8f);
+            // Label — centered
+            float labelW = ui.GetTextWidth(m_items[i].label.c_str(), 0.8f);
             float lx = x + (btnW - labelW) * 0.5f;
-            float ly = y + (btnH - 18) * 0.5f;
-            util::Color c = m_items[i].color;
+            float ly = y + liftY + (btnH - ui.GetLineHeight(0.8f)) * 0.5f;
             float bright = isSel ? 1.0f : (0.75f + h * 0.25f);
-            font.DrawText(batch, m_items[i].label.c_str(), lx, ly,
-                          c.r * bright, c.g * bright, c.b * bright, 0.8f);
+            ui.DrawText(m_items[i].label.c_str(), lx, ly,
+                        {m_items[i].color.r * bright, m_items[i].color.g * bright,
+                         m_items[i].color.b * bright, 0.8f}, 0.8f);
         }
 
-        // Keyboard shortcuts hint at bottom
+        // Keyboard shortcuts hint
         float footerY = panelY + panelH - 30;
         const char* hint = "Up/Down Navigate  |  Enter Select  |  Esc Back";
-        float hw = font.GetTextWidth(hint, 0.55f);
-        font.DrawText(batch, hint, panelX + (panelW - hw) * 0.5f, footerY,
-                      0.45f, 0.45f, 0.55f, 0.55f);
+        float hw = ui.GetTextWidth(hint, 0.55f);
+        ui.DrawText(hint, panelX + (panelW - hw) * 0.5f, footerY, T.textMuted, 0.55f);
     }
 
     // Handle key input. Returns the selected action.

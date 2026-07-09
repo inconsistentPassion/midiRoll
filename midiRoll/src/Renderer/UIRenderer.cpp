@@ -1,5 +1,6 @@
 #include "FontRenderer.h"
 #include "UIRenderer.h"
+#include "FrostedGlassTheme.h"
 #include <d3dcompiler.h>
 #include "stb_truetype.h"
 
@@ -171,14 +172,222 @@ float4 PSMain(PSIn input) : SV_TARGET {
 )";
 
 // ═════════════════════════════════════════════════════════════════════════════
+// Frosted Glass shader — translucent depth-based material
+//
+// Implements the full glass recipe:
+//  1. Rounded rect SDF mask
+//  2. Mipmap blur (textureLod equivalent)
+//  3. Saturation boost (1.8x)
+//  4. Glass tint (7% white overlay)
+//  5. Specular highlight (diagonal gradient)
+//  6. Border (1px, 12% white)
+//
+// The glass shader samples the scene texture at a mipmap level matching the
+// desired blur amount. LOD 3.0 = 1/8 resolution = extremely cheap to read.
+// All glass elements share ONE mipmap generation per frame.
+// ═════════════════════════════════════════════════════════════════════════════
+
+static const char* g_glassVS = R"(
+cbuffer CBGlass : register(b0) {
+    float viewWidth;
+    float viewHeight;
+    float time;
+    float pad0;
+};
+
+struct VSIn {
+    float2 quadPos      : POSITION;
+    float2 instPos      : TEXCOORD0;
+    float2 instSize     : TEXCOORD1;
+    float  instRadius   : TEXCOORD2;
+    float  instBlurLOD  : TEXCOORD3;
+    float  instGlassAlp : TEXCOORD4;
+    float  instBorderAlp: TEXCOORD5;
+    float  instSpecAlp  : TEXCOORD6;
+    float  instSpecLow  : TEXCOORD7;
+    float  instSat      : TEXCOORD8;
+};
+
+struct VSOut {
+    float4 pos       : SV_POSITION;
+    float2 uv        : TEXCOORD0;
+    float2 pixelSize : TEXCOORD1;
+    float  radius    : TEXCOORD2;
+    float  blurLOD   : TEXCOORD3;
+    float  glassAlp  : TEXCOORD4;
+    float  borderAlp : TEXCOORD5;
+    float  specAlp   : TEXCOORD6;
+    float  specLow   : TEXCOORD7;
+    float  sat       : TEXCOORD8;
+};
+
+VSOut VSMain(VSIn input) {
+    VSOut output;
+    float2 pixelPos = input.instPos + input.quadPos * input.instSize;
+    pixelPos = floor(pixelPos) + 0.5;
+
+    output.pos.x = (pixelPos.x / viewWidth) * 2.0 - 1.0;
+    output.pos.y = 1.0 - (pixelPos.y / viewHeight) * 2.0;
+    output.pos.z = 0.0;
+    output.pos.w = 1.0;
+
+    output.uv = input.quadPos;
+    output.pixelSize = input.instSize;
+    output.radius = input.instRadius;
+    output.blurLOD = input.instBlurLOD;
+    output.glassAlp = input.instGlassAlp;
+    output.borderAlp = input.instBorderAlp;
+    output.specAlp = input.instSpecAlp;
+    output.specLow = input.instSpecLow;
+    output.sat = input.instSat;
+    return output;
+}
+)";
+
+static const char* g_glassPS = R"(
+Texture2D    g_scene : register(t0);
+SamplerState g_sam  : register(s0);
+
+struct PSIn {
+    float4 pos       : SV_POSITION;
+    float2 uv        : TEXCOORD0;
+    float2 pixelSize : TEXCOORD1;
+    float  radius    : TEXCOORD2;
+    float  blurLOD   : TEXCOORD3;
+    float  glassAlp  : TEXCOORD4;
+    float  borderAlp : TEXCOORD5;
+    float  specAlp   : TEXCOORD6;
+    float  specLow   : TEXCOORD7;
+    float  sat       : TEXCOORD8;
+};
+
+float roundedRectSDF(float2 p, float2 halfSize, float r) {
+    float2 d = abs(p) - halfSize + r;
+    return length(max(d, 0.0)) - r;
+}
+
+float4 PSMain(PSIn input) : SV_TARGET {
+    float2 pixel = input.uv * input.pixelSize;
+
+    // 1. Rounded rect mask (SDF)
+    float2 center = input.pixelSize * 0.5;
+    float2 halfSize = input.pixelSize * 0.5;
+    float2 p = pixel - center;
+    float r = min(input.radius, min(halfSize.x, halfSize.y));
+    float dist = roundedRectSDF(p, halfSize, r);
+    if (dist > 1.0) discard;
+    float edgeAlpha = 1.0 - smoothstep(-1.0, 0.0, dist);
+
+    // 2. Mipmap blur (mipmap-stacking)
+    // Instead of multi-pass Gaussian/Kawase, sample the scene texture at the
+    // appropriate mipmap level. Each mip level is already a 2x-downsampled
+    // (blurred) version of the previous level.
+    // SampleLevel() = textureLod() in GLSL.
+    float lodFloor = floor(input.blurLOD);
+    float lodFrac = frac(input.blurLOD);
+    float2 sceneUV = input.uv;
+    float3 blurA = g_scene.SampleLevel(g_sam, sceneUV, lodFloor).rgb;
+    float3 blurB = g_scene.SampleLevel(g_sam, sceneUV, lodFloor + 1.0).rgb;
+    float3 blurred = lerp(blurA, blurB, lodFrac);
+
+    // 3. Boost saturation — colors bleeding through glass become more vivid
+    float luma = dot(blurred, float3(0.2126, 0.7152, 0.0722));
+    blurred = lerp(float3(luma, luma, luma), blurred, input.sat);
+
+    // 4. Glass tint — white overlay at glassAlpha opacity
+    blurred = lerp(blurred, float3(1.0, 1.0, 1.0), input.glassAlp);
+
+    // 5. Specular highlight (135-degree diagonal gradient)
+    // Top-left: brighter, bottom-right: dimmer
+    float gradient = input.uv.x * 0.5 + input.uv.y * 0.5;
+    float spec = lerp(input.specAlp, input.specLow, gradient);
+    // Fade near edges to avoid hard cutoff
+    spec *= smoothstep(0.0, 0.3, 1.0 - abs(dist) / max(halfSize.x, halfSize.y));
+    blurred += float3(spec, spec, spec);
+
+    // 6. Border — 1px using SDF edge detection
+    float borderMask = smoothstep(0.0, 1.0, dist + 1.0) - smoothstep(0.0, 1.0, dist);
+    blurred = lerp(blurred, float3(1.0, 1.0, 1.0), borderMask * input.borderAlp);
+
+    // Output: RGB = composited color, Alpha = rounded rect edge alpha
+    return float4(blurred, edgeAlpha);
+}
+)";
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Background blob shader — soft colored circles behind the UI layer
+// ═════════════════════════════════════════════════════════════════════════════
+
+static const char* g_blobVS = R"(
+cbuffer CBBlob : register(b0) {
+    float viewWidth;
+    float viewHeight;
+    float time;
+    float pad0;
+};
+
+struct VSIn {
+    float2 quadPos : POSITION;
+    float2 center  : TEXCOORD0;
+    float  radius  : TEXCOORD1;
+    float4 color   : COLOR0;
+};
+
+struct VSOut {
+    float4 pos    : SV_POSITION;
+    float2 uv     : TEXCOORD0;
+    float2 center : TEXCOORD1;
+    float  radius : TEXCOORD2;
+    float4 color  : COLOR0;
+};
+
+VSOut VSMain(VSIn input) {
+    VSOut o;
+    // Expand quad to cover the blob area
+    float2 blobCenter = input.center;
+    float blobRadius = input.radius;
+    float2 worldPos = blobCenter + (input.quadPos - 0.5) * 2.0 * blobRadius;
+
+    o.pos.x = worldPos.x * 2.0 - 1.0;
+    o.pos.y = 1.0 - worldPos.y * 2.0;
+    o.pos.z = 0.0;
+    o.pos.w = 1.0;
+    o.uv = input.quadPos;
+    o.center = input.center;
+    o.radius = input.radius;
+    o.color = input.color;
+    return o;
+}
+)";
+
+static const char* g_blobPS = R"(
+struct PSIn {
+    float4 pos    : SV_POSITION;
+    float2 uv     : TEXCOORD0;
+    float2 center : TEXCOORD1;
+    float  radius : TEXCOORD2;
+    float4 color  : COLOR0;
+};
+
+float4 PSMain(PSIn input) : SV_TARGET {
+    float d = distance(input.uv, float2(0.5, 0.5));
+    float alpha = smoothstep(0.5, 0.5 * 0.3, d) * input.color.a;
+    return float4(input.color.rgb, alpha);
+}
+)";
+
+// ═════════════════════════════════════════════════════════════════════════════
 // Initialization
 // ═════════════════════════════════════════════════════════════════════════════
 
 bool UIRenderer::Initialize(ID3D11Device* device, ID3D11DeviceContext* ctx) {
     m_instances.reserve(m_maxInstances);
+    m_glassInstances.reserve(256);
     if (!CreateShaders(device)) return false;
     if (!CreateGeometry(device)) return false;
     if (!CreateStates(device)) return false;
+    if (!CreateGlassShaders(device)) return false;
+    if (!CreateGlassGeometry(device)) return false;
     return true;
 }
 
@@ -468,9 +677,25 @@ void UIRenderer::Begin(ID3D11DeviceContext* ctx, uint32_t viewW, uint32_t viewH)
     m_viewW = viewW;
     m_viewH = viewH;
     m_instances.clear();
+    m_glassInstances.clear();
+    m_sceneSRV = nullptr;
+    m_maxSceneLOD = 0.0f;
+}
+
+void UIRenderer::Begin(ID3D11DeviceContext* ctx, uint32_t viewW, uint32_t viewH,
+                       ID3D11ShaderResourceView* sceneSRV, float maxLOD) {
+    m_ctx = ctx;
+    m_viewW = viewW;
+    m_viewH = viewH;
+    m_instances.clear();
+    m_glassInstances.clear();
+    m_sceneSRV = sceneSRV;
+    m_maxSceneLOD = maxLOD;
 }
 
 void UIRenderer::End() {
+    // Glass first (behind regular UI), then regular rects/text
+    FlushGlassBatch();
     FlushBatch();
     m_ctx = nullptr;
 }
@@ -577,6 +802,143 @@ float UIRenderer::GetTextWidth(const std::string& text, float scale) {
 
 float UIRenderer::GetLineHeight(float scale) {
     return m_fontLineHeight * m_fontScale * scale;
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// DrawGlass — frosted translucent panel
+// ═════════════════════════════════════════════════════════════════════════════
+
+void UIRenderer::DrawGlass(float x, float y, float w, float h,
+                           const RectStyle& style, float blurLOD, float glassAlpha) {
+    if (m_glassInstances.size() >= 2048) FlushGlassBatch();
+
+    // Clamp blurLOD to available mip levels
+    float effectiveLOD = (blurLOD > m_maxSceneLOD) ? m_maxSceneLOD : blurLOD;
+
+    GlassInstanceData inst{};
+    inst.position = {x, y};
+    inst.size = {w, h};
+    inst.cornerRadius = style.cornerRadius;
+    inst.blurLOD = effectiveLOD;
+    inst.glassAlpha = glassAlpha;
+    inst.borderAlpha = style.borderColor.w;
+    inst.specularAlpha = glass::GetTheme().specularAlpha;
+    inst.specularAlphaLow = glass::GetTheme().specularAlphaLow;
+    inst.saturation = glass::GetTheme().saturation;
+    m_glassInstances.push_back(inst);
+}
+
+void UIRenderer::FlushGlass() {
+    FlushGlassBatch();
+}
+
+void UIRenderer::FlushGlassBatch() {
+    if (m_glassInstances.empty() || !m_ctx || !m_sceneSRV || !m_glassVS) return;
+
+    // Upload instances
+    D3D11_MAPPED_SUBRESOURCE mapped;
+    HRESULT hr = m_ctx->Map(m_glassInstanceVB.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped);
+    if (FAILED(hr)) return;
+    memcpy(mapped.pData, m_glassInstances.data(), m_glassInstances.size() * sizeof(GlassInstanceData));
+    m_ctx->Unmap(m_glassInstanceVB.Get(), 0);
+
+    // Update constant buffer
+    CBPerFrame cb{(float)m_viewW, (float)m_viewH, m_time, 0};
+    hr = m_ctx->Map(m_glassCB.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped);
+    if (FAILED(hr)) return;
+    memcpy(mapped.pData, &cb, sizeof(cb));
+    m_ctx->Unmap(m_glassCB.Get(), 0);
+
+    // Bind pipeline
+    m_ctx->IASetInputLayout(m_glassLayout.Get());
+    m_ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+    UINT strides[2] = {sizeof(float) * 2, sizeof(GlassInstanceData)};
+    UINT offsets[2] = {0, 0};
+    ID3D11Buffer* bufs[2] = {m_quadVB.Get(), m_glassInstanceVB.Get()};
+    m_ctx->IASetVertexBuffers(0, 2, bufs, strides, offsets);
+
+    m_ctx->VSSetShader(m_glassVS.Get(), nullptr, 0);
+    m_ctx->VSSetConstantBuffers(0, 1, m_glassCB.GetAddressOf());
+
+    m_ctx->PSSetShader(m_glassPS.Get(), nullptr, 0);
+    m_ctx->PSSetShaderResources(0, 1, &m_sceneSRV);
+    m_ctx->PSSetSamplers(0, 1, m_sampler.GetAddressOf());
+
+    float bf[4] = {1,1,1,1};
+    m_ctx->OMSetBlendState(m_blendState.Get(), bf, 0xFFFFFFFF);
+    m_ctx->OMSetDepthStencilState(m_depthStencil.Get(), 0);
+    m_ctx->RSSetState(m_rasterizer.Get());
+
+    m_ctx->DrawInstanced(6, (UINT)m_glassInstances.size(), 0, 0);
+
+    m_glassInstances.clear();
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Glass shader compilation
+// ═════════════════════════════════════════════════════════════════════════════
+
+bool UIRenderer::CreateGlassShaders(ID3D11Device* device) {
+    ComPtr<ID3DBlob> vsBlob, psBlob, err;
+    HRESULT hr;
+
+    hr = D3DCompile(g_glassVS, strlen(g_glassVS), "glassVS", nullptr, nullptr,
+                    "VSMain", "vs_5_0", 0, 0, vsBlob.GetAddressOf(), err.GetAddressOf());
+    if (FAILED(hr)) {
+        if (err) OutputDebugStringA((char*)err->GetBufferPointer());
+        return false;
+    }
+
+    hr = D3DCompile(g_glassPS, strlen(g_glassPS), "glassPS", nullptr, nullptr,
+                    "PSMain", "ps_5_0", 0, 0, psBlob.GetAddressOf(), err.GetAddressOf());
+    if (FAILED(hr)) {
+        if (err) OutputDebugStringA((char*)err->GetBufferPointer());
+        return false;
+    }
+
+    hr = device->CreateVertexShader(vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(),
+                                     nullptr, m_glassVS.GetAddressOf());
+    if (FAILED(hr)) return false;
+
+    hr = device->CreatePixelShader(psBlob->GetBufferPointer(), psBlob->GetBufferSize(),
+                                    nullptr, m_glassPS.GetAddressOf());
+    if (FAILED(hr)) return false;
+
+    // Input layout for glass instances
+    D3D11_INPUT_ELEMENT_DESC layout[] = {
+        {"POSITION", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0},
+        {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 1, 0, D3D11_INPUT_PER_INSTANCE_DATA, 1},
+        {"TEXCOORD", 1, DXGI_FORMAT_R32G32_FLOAT, 1, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_INSTANCE_DATA, 1},
+        {"TEXCOORD", 2, DXGI_FORMAT_R32_FLOAT,    1, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_INSTANCE_DATA, 1},
+        {"TEXCOORD", 3, DXGI_FORMAT_R32_FLOAT,    1, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_INSTANCE_DATA, 1},
+        {"TEXCOORD", 4, DXGI_FORMAT_R32_FLOAT,    1, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_INSTANCE_DATA, 1},
+        {"TEXCOORD", 5, DXGI_FORMAT_R32_FLOAT,    1, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_INSTANCE_DATA, 1},
+        {"TEXCOORD", 6, DXGI_FORMAT_R32_FLOAT,    1, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_INSTANCE_DATA, 1},
+        {"TEXCOORD", 7, DXGI_FORMAT_R32_FLOAT,    1, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_INSTANCE_DATA, 1},
+        {"TEXCOORD", 8, DXGI_FORMAT_R32_FLOAT,    1, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_INSTANCE_DATA, 1},
+    };
+
+    hr = device->CreateInputLayout(layout, _countof(layout),
+                                    vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(),
+                                    m_glassLayout.GetAddressOf());
+    return SUCCEEDED(hr);
+}
+
+bool UIRenderer::CreateGlassGeometry(ID3D11Device* device) {
+    D3D11_BUFFER_DESC bd{};
+    bd.ByteWidth = (UINT)(2048 * sizeof(GlassInstanceData));
+    bd.Usage = D3D11_USAGE_DYNAMIC;
+    bd.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+    bd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+    HRESULT hr = device->CreateBuffer(&bd, nullptr, m_glassInstanceVB.GetAddressOf());
+    if (FAILED(hr)) return false;
+
+    bd.ByteWidth = sizeof(CBPerFrame);
+    bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+    bd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+    hr = device->CreateBuffer(&bd, nullptr, m_glassCB.GetAddressOf());
+    return SUCCEEDED(hr);
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
