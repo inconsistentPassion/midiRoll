@@ -114,6 +114,7 @@
     <ClCompile Include="src\Renderer\SpriteBatch.cpp" />
     <ClCompile Include="src\Renderer\FontRenderer.cpp" />
     <ClCompile Include="src\Renderer\UIRenderer.cpp" />
+    <ClCompile Include="src\Renderer\GlassRenderer.cpp" />
     <ClCompile Include="src\Effects\ParticleSystem.cpp" />
     <ClCompile Include="src\Effects\GPUParticleSystem.cpp" />
     <ClCompile Include="src\Piano\PianoRenderer.cpp" />
@@ -141,6 +142,8 @@
     <ClInclude Include="src\Renderer\SpriteBatch.h" />
     <ClInclude Include="src\Renderer\FontRenderer.h" />
     <ClInclude Include="src\Renderer\UIRenderer.h" />
+    <ClInclude Include="src\Renderer\GlassRenderer.h" />
+    <ClInclude Include="src\Renderer\FrostedGlassTheme.h" />
     <ClInclude Include="src\Renderer\stb_truetype.h" />
     <ClInclude Include="src\Effects\ParticleSystem.h" />
     <ClInclude Include="src\Effects\GPUParticleSystem.h" />

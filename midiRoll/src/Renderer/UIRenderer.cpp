@@ -380,7 +380,7 @@ float4 PSMain(PSIn input) : SV_TARGET {
 // Initialization
 // ═════════════════════════════════════════════════════════════════════════════
 
-bool UIRenderer::Initialize(ID3D11Device* device, ID3D11DeviceContext* ctx) {
+bool UIRenderer::Initialize(ID3D11Device* device, ID3D11DeviceContext* /*ctx*/) {
     m_instances.reserve(m_maxInstances);
     m_glassInstances.reserve(256);
     if (!CreateShaders(device)) return false;
@@ -568,7 +568,7 @@ bool UIRenderer::BuildFontAtlas(ID3D11Device* device, ID3D11DeviceContext* ctx,
 
     // SDF parameters
     int padding = 6;      // extra padding around glyphs for SDF
-    float onEdge = 0.25f; // SDF value at the glyph edge
+    // float onEdge = 0.25f; // SDF value at the glyph edge (used by stbtt_GetGlyphSDF internally)
     float pixelDistScale = 64.0f; // how fast SDF falls off
 
     m_atlasW = 4096;

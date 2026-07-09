@@ -202,7 +202,6 @@ void MainMenuState::DrawMainButtons(Context& ctx) {
         bool focused = (m_focused == (ButtonID)i);
 
         // Press animation: scale down slightly when pressed
-        float scale = 1.0f - p * T.pressScale + T.pressScale; // 0.97 on press
         float actualScale = 1.0f - p * 0.05f;
         float scaledW = btn.w * actualScale;
         float scaledH = btn.h * actualScale;

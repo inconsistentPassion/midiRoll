@@ -44,7 +44,7 @@ public:
 
     // ── Frosted Glass render ──
     void RenderGlass(UIRenderer& ui, int viewW, int viewH,
-                     ID3D11ShaderResourceView* sceneSRV, float maxLOD) {
+                     ID3D11ShaderResourceView* /*sceneSRV*/, float /*maxLOD*/) {
         if (!m_open) return;
 
         auto& T = glass::GetTheme();
